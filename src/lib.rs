@@ -1,8 +1,25 @@
 use libc::{O_DIRECT, O_DSYNC, O_SYNC};
+use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io::BufWriter;
 use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
+
+fn calculate_checksum<R: Read>(reader: &mut R, size: usize) -> std::io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buffer: Vec<u8> = Vec::with_capacity(size);
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        println!("still reading");
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
 
 pub fn clone(
     device_path: String,
@@ -71,14 +88,36 @@ pub fn flash(
     device_path: String,
     block_size: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let img_file = match File::open(&img_path) {
+    let mut img_file = match File::open(&img_path) {
         Ok(file) => file,
         Err(e) => {
             println!("Image file not found");
             return Err(Box::new(e));
         }
     };
-    let file_size = img_file.metadata().unwrap().len();
+    let file_size = match img_file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(e) => {
+            println!("Error reading image file metadata");
+            return Err(Box::new(e));
+        }
+    };
+    let file_size_usize = match usize::try_from(file_size) {
+        Ok(size) => size,
+        Err(e) => {
+            println!("File size too large");
+            return Err(Box::new(e));
+        }
+    };
+    let img_checksum = match calculate_checksum(&mut img_file, file_size_usize) {
+        Ok(img_checksum) => img_checksum,
+        Err(e) => {
+            println!("Error calculating image checksum");
+            return Err(Box::new(e));
+        }
+    };
+
+    println!("Source image checksum: {}", img_checksum);
 
     // Write the image to the device
     let mut device_file = match OpenOptions::new()
@@ -121,6 +160,35 @@ pub fn flash(
         count = count + bytes_read;
         let percentage = (count * 100) / file_size as usize;
         println!("written {count}/{file_size} : {percentage}%");
+    }
+
+    // Calculate the checksum of the data on the SD card
+    let device_file_ = match File::open(device_path) {
+        Ok(dev_file) => dev_file,
+        Err(e) => {
+            println!("Error while opening the devicefile.");
+            return Err(Box::new(e));
+        }
+    };
+    let mut reader = BufReader::new(device_file_);
+    let device_checksum = match calculate_checksum(&mut reader, file_size_usize) {
+        Ok(dev_checksum) => dev_checksum,
+        Err(e) => {
+            println!("Error while calculating checksum");
+            return Err(Box::new(e));
+        }
+    };
+    println!("Device checksum: {}", device_checksum);
+
+    // Compare the checksums
+    if img_checksum == device_checksum {
+        println!("Checksums match. Write operation successful.");
+    } else {
+        println!("Checksums do not match. Write operation may have failed.");
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Checksums do not match",
+        )));
     }
 
     Ok(())
