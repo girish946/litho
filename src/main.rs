@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use litho::{clone, flash};
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -53,7 +54,6 @@ pub async fn main() {
             file,
             device,
             block_size,
-
             silent,
         } => {
             println!(
@@ -64,7 +64,11 @@ pub async fn main() {
                 Some(size) => size,
                 None => 4096,
             };
-            let _ = match clone(device, file, blk_size) {
+            let silent = match silent {
+                Some(silent) => silent,
+                None => false,
+            };
+            let _ = match clone(device, file, blk_size, silent) {
                 Ok(_) => println!("Success"),
                 Err(e) => println!("Error: {}", e),
             };
@@ -83,7 +87,11 @@ pub async fn main() {
                 Some(size) => size,
                 None => 4096,
             };
-            let _ = match flash(file, device, blk_size) {
+            let silent = match silent {
+                Some(silent) => silent,
+                None => false,
+            };
+            let _ = match flash(file, device, blk_size, silent) {
                 Ok(_) => println!("Success"),
                 Err(e) => println!("Error: {}", e),
             };

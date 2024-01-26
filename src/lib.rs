@@ -25,11 +25,15 @@ pub fn clone(
     device_path: String,
     output_path: String,
     block_size: usize,
+    silent: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!(
-        "device: {}, output: {}, block_size: {}",
-        device_path, output_path, block_size
-    );
+    if !silent {
+        println!(
+            "device: {}, output: {}, block_size: {}",
+            device_path, output_path, block_size
+        );
+    }
+
     // Open the device file with Direct IO
     let mut device_file = match OpenOptions::new()
         .read(true)
@@ -78,7 +82,9 @@ pub fn clone(
             }
         };
         total_bytes_read += bytes_read;
-        println!("Read and written {total_bytes_read} bytes");
+        if !silent {
+            println!("Read and written {total_bytes_read} bytes");
+        }
     }
     Ok(())
 }
@@ -87,6 +93,7 @@ pub fn flash(
     img_path: String,
     device_path: String,
     block_size: usize,
+    silent: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut img_file = match File::open(&img_path) {
         Ok(file) => file,
@@ -117,7 +124,9 @@ pub fn flash(
         }
     };
 
-    println!("Source image checksum: {}", img_checksum);
+    if !silent {
+        println!("Source image checksum: {}", img_checksum);
+    }
 
     // Write the image to the device
     let mut device_file = match OpenOptions::new()
@@ -144,7 +153,11 @@ pub fn flash(
 
     let mut reader = BufReader::new(img_file);
     let mut buffer = vec![0u8; block_size];
-    println!("Writing image to the device...: {file_size}");
+
+    if !silent {
+        println!("Writing image to the device...: {file_size}");
+    }
+
     let mut count: usize = 0;
     while let Ok(bytes_read) = reader.read(&mut buffer) {
         if bytes_read == 0 {
@@ -159,7 +172,9 @@ pub fn flash(
         };
         count = count + bytes_read;
         let percentage = (count * 100) / file_size as usize;
-        println!("written {count}/{file_size} : {percentage}%");
+        if !silent {
+            println!("written {count}/{file_size} : {percentage}%");
+        }
     }
 
     // Calculate the checksum of the data on the SD card
@@ -178,11 +193,15 @@ pub fn flash(
             return Err(Box::new(e));
         }
     };
-    println!("Device checksum: {}", device_checksum);
+    if !silent {
+        println!("Device checksum: {}", device_checksum);
+    }
 
     // Compare the checksums
     if img_checksum == device_checksum {
-        println!("Checksums match. Write operation successful.");
+        if !silent {
+            println!("Checksums match. Write operation successful.");
+        }
     } else {
         println!("Checksums do not match. Write operation may have failed.");
         return Err(Box::new(std::io::Error::new(
