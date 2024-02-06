@@ -21,12 +21,16 @@ fn calculate_checksum<R: Read>(reader: &mut R, size: usize) -> std::io::Result<S
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub fn clone(
+pub fn clone<F>(
     device_path: String,
     output_path: String,
     block_size: usize,
     silent: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+    callback_fn: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: Fn(f64) -> (),
+{
     if !silent {
         println!(
             "device: {}, output: {}, block_size: {}",
@@ -84,17 +88,23 @@ pub fn clone(
         total_bytes_read += bytes_read;
         if !silent {
             println!("Read and written {total_bytes_read} bytes");
+            // calculate percentage and call callback
+            callback_fn((total_bytes_read as f64 / 100.0) as f64);
         }
     }
     Ok(())
 }
 
-pub fn flash(
+pub fn flash<F>(
     img_path: String,
     device_path: String,
     block_size: usize,
     silent: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+    callback_fn: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: Fn(f64) -> (),
+{
     let mut img_file = match File::open(&img_path) {
         Ok(file) => file,
         Err(e) => {
@@ -174,6 +184,7 @@ pub fn flash(
         let percentage = (count * 100) / file_size as usize;
         if !silent {
             println!("written {count}/{file_size} : {percentage}%");
+            callback_fn(percentage as f64);
         }
     }
 

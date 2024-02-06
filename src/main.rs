@@ -46,6 +46,10 @@ enum Commands {
     },
 }
 
+fn callback_fn(percentage: f64) {
+    println!("{percentage}%");
+}
+
 #[tokio::main]
 pub async fn main() {
     let cli = Cli::parse();
@@ -68,7 +72,7 @@ pub async fn main() {
                 Some(silent) => silent,
                 None => false,
             };
-            let _ = match clone(device, file, blk_size, silent) {
+            let _ = match clone(device, file, blk_size, silent, callback_fn) {
                 Ok(_) => println!("Success"),
                 Err(e) => println!("Error: {}", e),
             };
@@ -91,7 +95,7 @@ pub async fn main() {
                 Some(silent) => silent,
                 None => false,
             };
-            let _ = match flash(file, device, blk_size, silent) {
+            let _ = match flash(file, device, blk_size, silent, callback_fn) {
                 Ok(_) => println!("Success"),
                 Err(e) => println!("Error: {}", e),
             };
