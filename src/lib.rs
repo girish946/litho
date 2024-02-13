@@ -1,3 +1,4 @@
+pub mod devices;
 use libc::{O_DIRECT, O_DSYNC, O_SYNC};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};

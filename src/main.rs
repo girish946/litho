@@ -44,6 +44,11 @@ enum Commands {
         #[clap(short, long)]
         silent: Option<bool>,
     },
+    Query {
+        /// device
+        #[clap(short, long)]
+        device: Option<String>,
+    },
 }
 
 fn callback_fn(percentage: f64) {
@@ -100,5 +105,23 @@ pub async fn main() {
                 Err(e) => println!("Error: {}", e),
             };
         }
+        Commands::Query { device } => match device {
+            Some(device) => {
+                println!("device: {}", device);
+            }
+            None => {
+                println!("No device specified");
+                match litho::devices::get_storage_devices() {
+                    Ok(devices) => {
+                        for device in devices {
+                            println!("{}", device);
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error: {}", e)
+                    }
+                };
+            }
+        },
     }
 }
