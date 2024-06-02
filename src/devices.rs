@@ -21,7 +21,7 @@ fn get_file_content(input_file: String) -> Result<String, Box<dyn std::error::Er
             format!(
                 "error coccured while reading :{}: {}",
                 input_file.clone(),
-                e.to_string()
+                e
             );
             "".to_string()
         }
@@ -97,9 +97,9 @@ pub fn get_storage_devices() -> Result<Vec<String>, String> {
             let mut dev_vendor_name = "".to_string();
             if !vendor_name_file.is_empty() {
                 dev_vendor_name = match get_file_content(vendor_name_file) {
-                    Ok(name) => name.replace("\n", ""),
+                    Ok(name) => name.replace('\n', ""),
                     Err(e) => {
-                        println!("error occured while reading vendor name: {}", e);
+                        println!("error occurred while reading vendor name: {}", e);
                         "".to_string()
                     }
                 };
@@ -112,9 +112,9 @@ pub fn get_storage_devices() -> Result<Vec<String>, String> {
             };
 
             let model_name = match get_file_content(model_name_file) {
-                Ok(model) => model.replace("\n", ""),
+                Ok(model) => model.replace('\n', ""),
                 Err(e) => {
-                    println!("error occured while reading model name: {}", e);
+                    println!("error occurred while reading model name: {}", e);
                     "".to_string()
                 }
             };
@@ -126,7 +126,7 @@ pub fn get_storage_devices() -> Result<Vec<String>, String> {
                 removable = match fs::read_to_string(dev.clone()) {
                     Ok(removable) => removable,
                     Err(e) => {
-                        println!("error occured while reading removable: {}", e);
+                        println!("error occurred while reading removable: {}", e);
                         "".to_string()
                     }
                 }
@@ -135,20 +135,19 @@ pub fn get_storage_devices() -> Result<Vec<String>, String> {
 
             dev.pop();
             dev.push("size");
-            let size: u64;
-            size = match fs::read_to_string(dev.clone()) {
+            let size: u64 = match fs::read_to_string(dev.clone()) {
                 Ok(size_str) => {
                     // println!("size: {}", size_str);
                     match size_str.trim().parse::<u64>() {
                         Ok(s) => s,
                         Err(e) => {
-                            println!("error occured while parsing size: {}", e);
+                            println!("error occurred while parsing size: {}", e);
                             0
                         }
                     }
                 }
                 Err(e) => {
-                    println!("error occured while reading size: {}", e);
+                    println!("error occurred while reading size: {}", e);
                     0
                 }
             };
@@ -183,5 +182,5 @@ pub fn get_storage_devices() -> Result<Vec<String>, String> {
         }
     }
     println!("devices: {:?}", devices);
-    return Ok(devices);
+    Ok(devices)
 }
