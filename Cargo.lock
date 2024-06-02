@@ -728,6 +728,8 @@ dependencies = [
 [[package]]
 name = "simple-pub-sub"
 version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09b071e9476c4863770458c1e70576f05a7ecd9855eaae218391bb24c1426d4d"
 dependencies = [
  "clap",
  "clap_complete",
