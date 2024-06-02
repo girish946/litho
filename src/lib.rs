@@ -27,10 +27,11 @@ pub fn clone<F>(
     output_path: String,
     block_size: usize,
     silent: bool,
-    callback_fn: F,
+    callback_fn: Option<F>,
+    channel: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: Fn(f64) -> (),
+    F: Fn(f64),
 {
     if !silent {
         println!(
@@ -49,7 +50,7 @@ where
     {
         Ok(device_file) => device_file,
         Err(e) => {
-            println!("Error opening device file");
+            println!("Error opening device file: {}", device_path);
             return Err(Box::new(e));
         }
     };
@@ -90,8 +91,13 @@ where
         if !silent {
             println!("Read and written {total_bytes_read} bytes");
             // calculate percentage and call callback
-            callback_fn((total_bytes_read as f64 / 100.0) as f64);
+            if let Some(callback) = &callback_fn {
+                callback(total_bytes_read as f64 / 100.0);
+            }
         }
+        if let Some(channel) = channel.as_ref() {
+            let _ = channel.send(format!("{total_bytes_read}")).unwrap();
+        };
     }
     Ok(())
 }
@@ -101,10 +107,11 @@ pub fn flash<F>(
     device_path: String,
     block_size: usize,
     silent: bool,
-    callback_fn: F,
+    callback_fn: Option<F>,
+    channel: Option<tokio::sync::broadcast::Sender<String>>,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: Fn(f64) -> (),
+    F: Fn(f64),
 {
     let mut img_file = match File::open(&img_path) {
         Ok(file) => file,
@@ -181,12 +188,19 @@ where
                 return Err(Box::new(e));
             }
         };
-        count = count + bytes_read;
+        count += bytes_read;
         let percentage = (count * 100) / file_size as usize;
         if !silent {
             println!("written {count}/{file_size} : {percentage}%");
-            callback_fn(percentage as f64);
+
+            // calculate percentage and call callback
+            if let Some(callback) = &callback_fn {
+                callback(percentage as f64);
+            }
         }
+        if let Some(channel) = channel.as_ref() {
+            let _ = channel.send(format!("{percentage}")).unwrap();
+        };
     }
 
     // Calculate the checksum of the data on the SD card

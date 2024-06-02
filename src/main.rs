@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 use litho::{clone, flash};
+use simple_pub_sub::client::Client;
+use tokio::sync::broadcast;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -26,6 +28,10 @@ enum Commands {
         /// message to be published
         #[clap(short, long)]
         silent: Option<bool>,
+
+        /// sockfile
+        #[clap(short = 'F', long)]
+        sockfile: Option<String>,
     },
     Flash {
         /// file to be written to the device
@@ -43,6 +49,10 @@ enum Commands {
         /// message to be published
         #[clap(short, long)]
         silent: Option<bool>,
+
+        /// sockfile
+        #[clap(short = 'F', long)]
+        sockfile: Option<String>,
     },
     Query {
         /// device
@@ -55,8 +65,39 @@ fn callback_fn(percentage: f64) {
     println!("{percentage}%");
 }
 
+async fn callback_fn_async(tx: broadcast::Sender<String>, mut client: Client) {
+    let mut rx = tx.subscribe();
+
+    loop {
+        let msg = match rx.recv().await {
+            Ok(msg) => msg,
+            Err(e) => {
+                println!("Error: {}", e);
+                continue;
+            }
+        };
+        match &client
+            .publish(
+                "test".to_string(),
+                format!("{{ \"bytes_cloned\": {} }}", msg)
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .await
+        {
+            Ok(_) => {
+                println!("Published");
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        };
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
+    env_logger::init();
     let cli = Cli::parse();
     match cli.command {
         Commands::Clone {
@@ -64,46 +105,74 @@ pub async fn main() {
             device,
             block_size,
             silent,
+            sockfile,
         } => {
             println!(
                 "file: {}, device: {}, block_size: {:?}, silent: {:?}",
                 file, device, block_size, silent
             );
-            let blk_size = match block_size {
-                Some(size) => size,
-                None => 4096,
-            };
-            let silent = match silent {
-                Some(silent) => silent,
-                None => false,
-            };
-            let _ = match clone(device, file, blk_size, silent, callback_fn) {
-                Ok(_) => println!("Success"),
-                Err(e) => println!("Error: {}", e),
-            };
+            let blk_size = block_size.unwrap_or(4096);
+            let silent = silent.unwrap_or(false);
+
+            if let Some(sockfile) = sockfile {
+                println!("sockfile: {}", sockfile);
+                let (tx, _rx) = broadcast::channel::<String>(1000);
+
+                let client_type = simple_pub_sub::client::PubSubUnixClient { path: sockfile };
+                let mut client_obj = simple_pub_sub::client::Client::new(
+                    simple_pub_sub::client::PubSubClient::Unix(client_type),
+                );
+
+                // connect to the server.
+                let _ = client_obj.connect().await;
+
+                tokio::spawn(callback_fn_async(tx.clone(), client_obj));
+
+                match clone(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
+                    Ok(()) => println!("Success"),
+                    Err(e) => println!("Error: {}", e),
+                };
+            } else {
+                match clone(device, file, blk_size, silent, Some(callback_fn), None) {
+                    Ok(()) => println!("Success"),
+                    Err(e) => println!("Error: {}", e),
+                };
+            }
         }
         Commands::Flash {
             file,
             device,
             block_size,
             silent,
+            sockfile,
         } => {
             println!(
                 "file: {}, device: {}, block_size: {:?}, silent: {:?}",
                 file, device, block_size, silent
             );
-            let blk_size = match block_size {
-                Some(size) => size,
-                None => 4096,
-            };
-            let silent = match silent {
-                Some(silent) => silent,
-                None => false,
-            };
-            let _ = match flash(file, device, blk_size, silent, callback_fn) {
-                Ok(_) => println!("Success"),
-                Err(e) => println!("Error: {}", e),
-            };
+            let blk_size = block_size.unwrap_or(4096);
+            let silent = silent.unwrap_or(false);
+            if let Some(sockfile) = sockfile {
+                let client_type = simple_pub_sub::client::PubSubUnixClient { path: sockfile };
+                let mut client_obj = simple_pub_sub::client::Client::new(
+                    simple_pub_sub::client::PubSubClient::Unix(client_type),
+                );
+
+                // connect to the server.
+                let _ = client_obj.connect().await;
+
+                let (tx, _rx) = broadcast::channel(1000);
+                tokio::spawn(callback_fn_async(tx.clone(), client_obj));
+                match flash(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
+                    Ok(_) => println!("Success"),
+                    Err(e) => println!("Error: {}", e),
+                };
+            } else {
+                match flash(file, device, blk_size, silent, Some(callback_fn), None) {
+                    Ok(_) => println!("Success"),
+                    Err(e) => println!("Error: {}", e),
+                };
+            }
         }
         Commands::Query { device } => match device {
             Some(device) => {
