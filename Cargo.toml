@@ -2,6 +2,13 @@
 name = "litho"
 version = "0.1.0"
 edition = "2021"
+authors = ["Girish Joshi <mail@girishjoshi.io>"]
+license = "MIT"
+description = "cli tool to flash/clone the images to storage devices"
+readme = "README.md"
+keywords = ["cli", "os images", "clone", "flash", "storage devices"]
+repository = "https://github.com/girish946/litho"
+categories = ["command-line-interface", "command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,5 +20,5 @@ libc = "0.2.152"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 mio = "0.8.11"
-simple-pub-sub = { path = "/home/girish/git/research/rust/simple-message-broker/" }
+simple-pub-sub = "0.1.4"
 env_logger = "0.11.3"
