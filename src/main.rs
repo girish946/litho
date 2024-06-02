@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use litho::{clone, flash};
+use liblitho::{clone, flash};
 use simple_pub_sub::client::Client;
 use tokio::sync::broadcast;
 
@@ -180,7 +180,7 @@ pub async fn main() {
             }
             None => {
                 println!("No device specified");
-                match litho::devices::get_storage_devices() {
+                match liblitho::devices::get_storage_devices() {
                     Ok(devices) => {
                         for device in devices {
                             println!("{}", device);
