@@ -6,7 +6,7 @@ authors = ["Girish Joshi <mail@girishjoshi.io>"]
 license = "MIT"
 description = "cli tool to flash/clone the images to storage devices"
 readme = "README.md"
-keywords = ["cli", "os images", "clone", "flash", "storage devices"]
+keywords = ["cli", "os", "image", "clone", "flash", "storage devices"]
 repository = "https://github.com/girish946/litho"
 categories = ["command-line-interface", "command-line-utilities"]
 
