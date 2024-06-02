@@ -1,5 +1,5 @@
 [package]
-name = "litho"
+name = "liblitho"
 version = "0.1.0"
 edition = "2021"
 authors = ["Girish Joshi <mail@girishjoshi.io>"]
