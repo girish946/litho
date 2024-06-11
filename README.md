@@ -2,7 +2,6 @@
 
 A simple and lightweight library and CLI tool to write images to block devices.
 
-
 ## Command usage
 
 - Cloning a device to an image file:
@@ -34,7 +33,9 @@ Options:
 ```
 
 ## API usage
+
 - Clone a device to an image file:
+
 ```rust
 use litho::clone;
 let image = "/home/user/image-file.img".to_string();
@@ -49,6 +50,7 @@ litho::clone(image, device, block_size as usize, false, callback);
 ```
 
 - FLASH an image file to a device:
+
 ```rust
 use litho::flash
 let image = "/home/user/image-file.img".to_string();
@@ -60,4 +62,3 @@ fn callback_fn(percentage: f64) {
 }
 
 litho::flash(image, device, block_size as usize, false, callback);
-
