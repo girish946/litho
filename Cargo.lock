@@ -372,10 +372,12 @@ dependencies = [
  "env_logger",
  "libc",
  "mio",
+ "rust-lzma",
  "serde",
  "serde_json",
  "sha2",
  "simple-pub-sub",
+ "tempfile",
  "tokio",
 ]
 
@@ -610,6 +612,16 @@ name = "roff"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b833d8d034ea094b1ea68aa6d5c740e0d04bad9d16568d08ba6f76823a114316"
+
+[[package]]
+name = "rust-lzma"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d62915608f6cee1d7f2fc00f28b4f058ff79d6e4ec3c2fe0006b09b52437c84"
+dependencies = [
+ "pkg-config",
+ "vcpkg",
+]
 
 [[package]]
 name = "rustc-demangle"
