@@ -268,7 +268,7 @@ pub fn flash_xz<F>(
 where
     F: Fn(f64),
 {
-    let file1 = match NamedTempFile::new() {
+    let temp_file = match NamedTempFile::new() {
         Ok(file) => file,
         Err(e) => {
             println!("Error creating temp file");
@@ -276,7 +276,7 @@ where
         }
     };
 
-    let file_str = match file1.path().to_str() {
+    let temp_file_str = match temp_file.path().to_str() {
         Some(file_str) => file_str.to_string(),
         None => {
             println!("Error converting path to string");
@@ -286,7 +286,7 @@ where
             )));
         }
     };
-    let temp_file = file_str;
+    let temp_file = temp_file_str;
     println!("temp_file: {:?}", temp_file);
     decompress_img(img_path.clone(), temp_file.clone())?;
     match flash(
