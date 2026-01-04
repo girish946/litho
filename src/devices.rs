@@ -19,11 +19,7 @@ pub struct DeviceInfo {
 
 impl fmt::Display for DeviceInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            json!(self).to_string()
-        )
+        write!(f, "{}", json!(self).to_string())
     }
 }
 

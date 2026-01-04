@@ -188,14 +188,16 @@ impl App {
                 Operation::Clone => "Cloning",
                 Operation::Flash => "Flashing",
             };
-            let device_name = self.device_file.split(" - ").next().unwrap_or(&self.device_file);
+            let device_name = self
+                .device_file
+                .split(" - ")
+                .next()
+                .unwrap_or(&self.device_file);
             self.add_status_message(format!(
                 "{} {} to {} started...",
-                operation_name,
-                self.image_file,
-                device_name
+                operation_name, self.image_file, device_name
             ));
-            
+
             // Spawn the actual operation
             self.start_operation();
         } else if self.is_running {
@@ -206,41 +208,45 @@ impl App {
 
     fn start_operation(&mut self) {
         let image_file = self.image_file.clone();
-        let device_file = self.device_file.split(" - ").next().unwrap_or(&self.device_file).to_string();
+        let device_file = self
+            .device_file
+            .split(" - ")
+            .next()
+            .unwrap_or(&self.device_file)
+            .to_string();
         let operation = self.operation;
         let tx = self.progress_tx.clone();
         let error_tx = self.error_tx.clone();
 
         // Calculate optimal block size and add to status
         let block_size = calculate_block_size(&image_file, &device_file, operation);
-        self.add_status_message(format!("Using block size: {} bytes ({})", block_size, format_size_bytes(block_size as u64)));
+        self.add_status_message(format!(
+            "Using block size: {} bytes ({})",
+            block_size,
+            format_size_bytes(block_size as u64)
+        ));
 
         tokio::spawn(async move {
             // Calculate optimal block size
             let block_size = calculate_block_size(&image_file, &device_file, operation);
-            
-            
+
             let result = match operation {
-                Operation::Clone => {
-                    liblitho::clone(
-                        device_file,
-                        image_file,
-                        block_size,
-                        false,
-                        None::<fn(f64)>,
-                        Some(tx),
-                    )
-                }
-                Operation::Flash => {
-                    liblitho::flash(
-                        image_file,
-                        device_file,
-                        block_size,
-                        false,
-                        None::<fn(f64)>,
-                        Some(tx),
-                    )
-                }
+                Operation::Clone => liblitho::clone(
+                    device_file,
+                    image_file,
+                    block_size,
+                    false,
+                    None::<fn(f64)>,
+                    Some(tx),
+                ),
+                Operation::Flash => liblitho::flash(
+                    image_file,
+                    device_file,
+                    block_size,
+                    false,
+                    None::<fn(f64)>,
+                    Some(tx),
+                ),
             };
 
             if let Err(e) = result {
@@ -580,7 +586,7 @@ fn calculate_block_size(image_file: &str, device_file: &str, operation: Operatio
 
     // Find optimal block size (approximately 1/1000th of total size, but within BLOCKS array)
     let target_block = size / 1000;
-    
+
     // Find the closest block size from BLOCKS array
     let block_size = BLOCKS
         .iter()
