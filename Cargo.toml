@@ -12,6 +12,14 @@ categories = ["command-line-interface", "command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "litho"
+path = "src/main.rs"
+
+[[bin]]
+name = "litho-tui"
+path = "src/main_tui.rs"
+
 [dependencies]
 clap = { version = "4.4.18", features = ["derive", "cargo"] }
 tokio = { version = "1", features = ["full", "tracing"] }
@@ -24,3 +32,9 @@ simple-pub-sub = "0.1.4"
 env_logger = "0.11.3"
 rust-lzma = "0.6.0"
 tempfile = "3.10.1"
+anyhow = "1.0"
+log = "0.4"
+openssl = {version= "0.10.75", features=["vendored"]}
+ratatui = "0.28"
+crossterm = "0.28"
+fpicker = "0.1.4"

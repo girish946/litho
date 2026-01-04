@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use liblitho::{clone, flash};
+use log::{error, info};
 use simple_pub_sub::client::Client;
 use tokio::sync::broadcast;
 
@@ -62,7 +63,7 @@ enum Commands {
 }
 
 fn callback_fn(percentage: f64) {
-    println!("{percentage}%");
+    info!("Progress: {}%", percentage);
 }
 
 async fn callback_fn_async(tx: broadcast::Sender<String>, mut client: Client) {
@@ -72,7 +73,7 @@ async fn callback_fn_async(tx: broadcast::Sender<String>, mut client: Client) {
         let msg = match rx.recv().await {
             Ok(msg) => msg,
             Err(e) => {
-                println!("Error: {}", e);
+                error!("Failed to receive message: {}", e);
                 continue;
             }
         };
@@ -86,10 +87,10 @@ async fn callback_fn_async(tx: broadcast::Sender<String>, mut client: Client) {
             .await
         {
             Ok(_) => {
-                println!("Published");
+                info!("Published progress update");
             }
             Err(e) => {
-                println!("Error: {}", e);
+                error!("Failed to publish: {}", e);
             }
         };
     }
@@ -107,15 +108,15 @@ pub async fn main() {
             silent,
             sockfile,
         } => {
-            println!(
-                "file: {}, device: {}, block_size: {:?}, silent: {:?}",
+            info!(
+                "Clone command: file={}, device={}, block_size={:?}, silent={:?}",
                 file, device, block_size, silent
             );
             let blk_size = block_size.unwrap_or(4096);
             let silent = silent.unwrap_or(false);
 
             if let Some(sockfile) = sockfile {
-                println!("sockfile: {}", sockfile);
+                info!("Using socket file: {}", sockfile);
                 let (tx, _rx) = broadcast::channel::<String>(1000);
 
                 let client_type = simple_pub_sub::client::PubSubUnixClient { path: sockfile };
@@ -124,18 +125,20 @@ pub async fn main() {
                 );
 
                 // connect to the server.
-                let _ = client_obj.connect().await;
+                if let Err(e) = client_obj.connect().await {
+                    error!("Failed to connect to pub-sub server: {}", e);
+                }
 
                 tokio::spawn(callback_fn_async(tx.clone(), client_obj));
 
                 match clone(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
-                    Ok(()) => println!("Success"),
-                    Err(e) => println!("Error: {}", e),
+                    Ok(()) => info!("Clone operation completed successfully"),
+                    Err(e) => error!("Clone operation failed: {}", e),
                 };
             } else {
                 match clone(device, file, blk_size, silent, Some(callback_fn), None) {
-                    Ok(()) => println!("Success"),
-                    Err(e) => println!("Error: {}", e),
+                    Ok(()) => info!("Clone operation completed successfully"),
+                    Err(e) => error!("Clone operation failed: {}", e),
                 };
             }
         }
@@ -146,8 +149,8 @@ pub async fn main() {
             silent,
             sockfile,
         } => {
-            println!(
-                "file: {}, device: {}, block_size: {:?}, silent: {:?}",
+            info!(
+                "Flash command: file={}, device={}, block_size={:?}, silent={:?}",
                 file, device, block_size, silent
             );
             let blk_size = block_size.unwrap_or(4096);
@@ -159,35 +162,37 @@ pub async fn main() {
                 );
 
                 // connect to the server.
-                let _ = client_obj.connect().await;
+                if let Err(e) = client_obj.connect().await {
+                    error!("Failed to connect to pub-sub server: {}", e);
+                }
 
                 let (tx, _rx) = broadcast::channel(1000);
                 tokio::spawn(callback_fn_async(tx.clone(), client_obj));
                 match flash(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
-                    Ok(_) => println!("Success"),
-                    Err(e) => println!("Error: {}", e),
+                    Ok(_) => info!("Flash operation completed successfully"),
+                    Err(e) => error!("Flash operation failed: {}", e),
                 };
             } else {
                 match flash(file, device, blk_size, silent, Some(callback_fn), None) {
-                    Ok(_) => println!("Success"),
-                    Err(e) => println!("Error: {}", e),
+                    Ok(_) => info!("Flash operation completed successfully"),
+                    Err(e) => error!("Flash operation failed: {}", e),
                 };
             }
         }
         Commands::Query { device } => match device {
             Some(device) => {
-                println!("device: {}", device);
+                info!("Querying device: {}", device);
             }
             None => {
-                println!("No device specified");
+                info!("Querying all storage devices");
                 match liblitho::devices::get_storage_devices() {
                     Ok(devices) => {
                         for device in devices {
-                            println!("{}", device);
+                            info!("{}", device);
                         }
                     }
                     Err(e) => {
-                        println!("Error: {}", e)
+                        error!("Failed to get storage devices: {}", e)
                     }
                 };
             }
