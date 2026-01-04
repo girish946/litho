@@ -52,6 +52,11 @@ struct App {
 }
 
 impl App {
+    /// Creates a new App instance with initial state.
+    /// 
+    /// Initializes available devices by querying removable storage devices,
+    /// sets up broadcast channels for progress and error reporting, and
+    /// sets default values for all fields.
     fn new() -> App {
         let devices = match liblitho::devices::get_storage_devices() {
             Ok(devs) => devs
@@ -91,6 +96,13 @@ impl App {
         }
     }
 
+    /// Adds a status message to the message history and updates the current status.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `message` - The status message to add
+    /// 
+    /// Maintains a rolling window of the last 100 messages to prevent unbounded memory growth.
     fn add_status_message(&mut self, message: String) {
         self.status_message = message.clone();
         self.status_messages.push(message);
@@ -100,6 +112,9 @@ impl App {
         }
     }
 
+    /// Moves focus to the next input field in the UI.
+    /// 
+    /// Cycles through: ImageFile -> DeviceFile -> Operation -> StartStop -> ImageFile
     fn next_focus(&mut self) {
         self.focus = match self.focus {
             InputFocus::ImageFile => InputFocus::DeviceFile,
@@ -109,6 +124,9 @@ impl App {
         };
     }
 
+    /// Moves focus to the previous input field in the UI.
+    /// 
+    /// Cycles through: StartStop -> Operation -> DeviceFile -> ImageFile -> StartStop
     fn prev_focus(&mut self) {
         self.focus = match self.focus {
             InputFocus::ImageFile => InputFocus::StartStop,
@@ -118,6 +136,7 @@ impl App {
         };
     }
 
+    /// Toggles between Clone and Flash operations.
     fn toggle_operation(&mut self) {
         self.operation = match self.operation {
             Operation::Clone => Operation::Flash,
@@ -125,6 +144,10 @@ impl App {
         };
     }
 
+    /// Selects the next available device in the device list.
+    /// 
+    /// Wraps around to the first device when reaching the end of the list.
+    /// Updates the status message with the selected device name.
     fn next_device(&mut self) {
         if !self.available_devices.is_empty() {
             self.selected_device_index =
@@ -135,6 +158,10 @@ impl App {
         }
     }
 
+    /// Selects the previous available device in the device list.
+    /// 
+    /// Wraps around to the last device when at the beginning of the list.
+    /// Updates the status message with the selected device name.
     fn prev_device(&mut self) {
         if !self.available_devices.is_empty() {
             if self.selected_device_index == 0 {
@@ -148,6 +175,10 @@ impl App {
         }
     }
 
+    /// Refreshes the list of available removable storage devices.
+    /// 
+    /// Queries the system for current removable devices and updates the device list.
+    /// Resets the selected device index to 0 and updates the status message.
     fn refresh_devices(&mut self) {
         match liblitho::devices::get_storage_devices() {
             Ok(devs) => {
@@ -180,6 +211,16 @@ impl App {
         }
     }
 
+    /// Toggles the running state of the clone/flash operation.
+    /// 
+    /// If not running and both image file and device file are selected:
+    /// - Starts the operation by spawning an async task
+    /// - Updates progress to 0%
+    /// - Sets status message with operation details
+    /// 
+    /// If already running:
+    /// - Stops the operation
+    /// - Updates status message
     fn toggle_running(&mut self) {
         if !self.is_running && !self.image_file.is_empty() && !self.device_file.is_empty() {
             self.is_running = true;
@@ -206,6 +247,13 @@ impl App {
         }
     }
 
+    /// Spawns an async task to perform the clone or flash operation.
+    /// 
+    /// Calculates optimal block size based on file/device size,
+    /// updates status message with block size information,
+    /// and executes the appropriate operation (clone or flash).
+    /// 
+    /// Errors are sent through the error channel to be displayed in the UI.
     fn start_operation(&mut self) {
         let image_file = self.image_file.clone();
         let device_file = self
@@ -256,6 +304,13 @@ impl App {
         });
     }
 
+    /// Checks for progress updates and error messages from the operation channels.
+    /// 
+    /// Non-blocking check that:
+    /// - Updates progress percentage from progress channel
+    /// - Marks operation as complete when reaching 100%
+    /// - Handles error messages from error channel
+    /// - Resets progress on error
     fn check_progress(&mut self) {
         // Try to receive progress updates without blocking
         while let Ok(msg) = self.progress_rx.try_recv() {
@@ -276,6 +331,20 @@ impl App {
         }
     }
 
+    /// Opens an interactive file picker for selecting an image file.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `terminal` - The terminal backend to render the file picker
+    /// 
+    /// # Returns
+    /// 
+    /// * `io::Result<()>` - Ok if successful, Err on IO errors
+    /// 
+    /// The file picker supports:
+    /// - Navigation with arrow keys and Enter
+    /// - Quitting with 'q' or Escape
+    /// - Only files (not directories) can be selected
     fn open_file_picker<B: ratatui::backend::Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
@@ -313,6 +382,17 @@ impl App {
     }
 }
 
+/// Formats a byte count into a human-readable string with appropriate units.
+/// 
+/// # Arguments
+/// 
+/// * `bytes` - Number of bytes to format
+/// 
+/// # Returns
+/// 
+/// * `String` - Formatted string with units (B, KB, MB, or GB)
+/// 
+/// Uses decimal (base-1000) units.
 fn format_size_bytes(bytes: u64) -> String {
     if bytes >= 1_000_000_000 {
         format!("{:.2} GB", bytes as f64 / 1_000_000_000.0)
@@ -325,6 +405,17 @@ fn format_size_bytes(bytes: u64) -> String {
     }
 }
 
+/// Formats a sector count into a human-readable string with appropriate units.
+/// 
+/// # Arguments
+/// 
+/// * `size` - Number of 512-byte sectors
+/// 
+/// # Returns
+/// 
+/// * `String` - Formatted string with units (B, KB, MB, GB, or TB)
+/// 
+/// Converts sectors to bytes (assuming 512-byte sectors) and uses decimal units.
 fn format_size(size: u64) -> String {
     const SECTOR_SIZE: u64 = 512;
     let bytes = size * SECTOR_SIZE;
@@ -342,6 +433,14 @@ fn format_size(size: u64) -> String {
     }
 }
 
+/// Initializes and runs the terminal user interface.
+/// 
+/// # Returns
+/// 
+/// * `Result<(), io::Error>` - Ok if successful, Err on terminal or IO errors
+/// 
+/// Sets up the terminal in raw mode with alternate screen and mouse capture,
+/// runs the main application loop, and ensures proper cleanup on exit.
 pub async fn run_tui() -> Result<(), io::Error> {
     // Setup terminal
     enable_raw_mode()?;
@@ -369,6 +468,19 @@ pub async fn run_tui() -> Result<(), io::Error> {
     Ok(())
 }
 
+/// Main application loop that handles events and renders the UI.
+/// 
+/// # Arguments
+/// 
+/// * `terminal` - The terminal backend for rendering
+/// * `app` - Mutable reference to the application state
+/// 
+/// # Returns
+/// 
+/// * `io::Result<()>` - Ok if successful, Err on IO errors
+/// 
+/// Polls for keyboard events every 100ms, handles user input,
+/// updates application state, and re-renders the UI.
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
@@ -429,11 +541,27 @@ async fn run_app<B: ratatui::backend::Backend>(
     }
 }
 
+/// Renders the user interface with all widgets.
+/// 
+/// # Arguments
+/// 
+/// * `f` - Frame to render widgets into
+/// * `app` - Application state to display
+/// 
+/// Creates a vertical layout with:
+/// - Title bar
+/// - Image file input field
+/// - Device selection list
+/// - Operation selection (Clone/Flash)
+/// - Start/Stop button
+/// - Progress bar
+/// - Status message area
 fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(5),
             Constraint::Length(5),
@@ -442,6 +570,21 @@ fn ui(f: &mut Frame, app: &App) {
             Constraint::Min(1),
         ])
         .split(f.area());
+
+    // Title
+    let title = Paragraph::new("litho-tui")
+        .style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(title, chunks[0]);
 
     // Image file input
     let image_style = if app.focus == InputFocus::ImageFile {
@@ -456,7 +599,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .borders(Borders::ALL)
                 .title("Image File (Enter or 'f' to browse)"),
         );
-    f.render_widget(image_input, chunks[0]);
+    f.render_widget(image_input, chunks[1]);
 
     // Device file dropdown
     let device_style = if app.focus == InputFocus::DeviceFile {
@@ -493,7 +636,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .title("Device File (↑/↓ to select, 'r' to refresh)"),
         )
         .style(device_style);
-    f.render_widget(device_list, chunks[1]);
+    f.render_widget(device_list, chunks[2]);
 
     // Operation selection
     let op_style = if app.focus == InputFocus::Operation {
@@ -522,7 +665,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .title("Operation (Space to toggle)"),
         )
         .style(op_style);
-    f.render_widget(operation_list, chunks[2]);
+    f.render_widget(operation_list, chunks[3]);
 
     // Start/Stop button
     let button_style = if app.focus == InputFocus::StartStop {
@@ -538,7 +681,7 @@ fn ui(f: &mut Frame, app: &App) {
             .borders(Borders::ALL)
             .title("Action (Enter to toggle)"),
     );
-    f.render_widget(button, chunks[3]);
+    f.render_widget(button, chunks[4]);
 
     // Progress bar
     let progress_bar = Gauge::default()
@@ -550,16 +693,34 @@ fn ui(f: &mut Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )
         .percent(app.progress as u16);
-    f.render_widget(progress_bar, chunks[4]);
+    f.render_widget(progress_bar, chunks[5]);
 
     // Status message - show multiple recent messages
     let status_text = app.status_messages.join("\n");
     let status = Paragraph::new(status_text)
         .style(Style::default().fg(Color::Cyan))
         .block(Block::default().borders(Borders::ALL).title("Status"));
-    f.render_widget(status, chunks[5]);
+    f.render_widget(status, chunks[6]);
 }
 
+/// Calculates the optimal block size for read/write operations.
+/// 
+/// # Arguments
+/// 
+/// * `image_file` - Path to the image file
+/// * `device_file` - Path to the device file
+/// * `operation` - The operation type (Clone or Flash)
+/// 
+/// # Returns
+/// 
+/// * `usize` - Optimal block size in bytes, aligned to predefined block sizes
+/// 
+/// Strategy:
+/// - For Flash: Uses image file size
+/// - For Clone: Uses device size
+/// - Targets approximately 1/1000th of total size
+/// - Selects from predefined BLOCKS array (4KB to 32MB)
+/// - Falls back to largest block size if target exceeds all options
 fn calculate_block_size(image_file: &str, device_file: &str, operation: Operation) -> usize {
     let size = match operation {
         Operation::Flash => {
@@ -597,6 +758,13 @@ fn calculate_block_size(image_file: &str, device_file: &str, operation: Operatio
     block_size as usize
 }
 
+/// Entry point for the TUI application.
+/// 
+/// # Returns
+/// 
+/// * `Result<(), io::Error>` - Ok if successful, Err on errors
+/// 
+/// Initializes the tokio runtime and starts the TUI.
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     run_tui().await
