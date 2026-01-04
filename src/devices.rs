@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
@@ -18,8 +18,8 @@ pub struct DeviceInfo {
 
 /// function to read the file contents as a string
 fn get_file_content(input_file: String) -> Result<String> {
-    let content = fs::read_to_string(&input_file)
-        .context(format!("Failed to read file: {}", input_file))?;
+    let content =
+        fs::read_to_string(&input_file).context(format!("Failed to read file: {}", input_file))?;
     Ok(content)
 }
 
@@ -36,8 +36,8 @@ pub fn is_removable_device(device_path: &str) -> Result<bool> {
     debug!("Checking removable path: {}", removable_path);
 
     // Read the contents of the removable file
-    let mut file = fs::File::open(&removable_path)
-        .context(format!("Failed to open {}", removable_path))?;
+    let mut file =
+        fs::File::open(&removable_path).context(format!("Failed to open {}", removable_path))?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)
         .context("Failed to read removable file")?;
@@ -47,8 +47,7 @@ pub fn is_removable_device(device_path: &str) -> Result<bool> {
 }
 
 pub fn get_storage_devices() -> Result<Vec<String>> {
-    let paths = fs::read_dir("/sys/block/")
-        .context("Failed to read /sys/block/ directory")?;
+    let paths = fs::read_dir("/sys/block/").context("Failed to read /sys/block/ directory")?;
     let mut devices: Vec<String> = Vec::new();
 
     for path in paths {
@@ -89,7 +88,7 @@ pub fn get_storage_devices() -> Result<Vec<String>> {
                     }
                 };
             }
-            
+
             dev.pop();
             dev.push("model");
             let model_name_file = match dev.clone().into_os_string().to_str() {
@@ -104,7 +103,7 @@ pub fn get_storage_devices() -> Result<Vec<String>> {
                     String::new()
                 }
             };
-            
+
             dev.pop();
             dev.pop();
             dev.push("removable");
@@ -122,15 +121,13 @@ pub fn get_storage_devices() -> Result<Vec<String>> {
             dev.pop();
             dev.push("size");
             let size: u64 = match fs::read_to_string(dev.clone()) {
-                Ok(size_str) => {
-                    match size_str.trim().parse::<u64>() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!("Failed to parse size: {}", e);
-                            0
-                        }
+                Ok(size_str) => match size_str.trim().parse::<u64>() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("Failed to parse size: {}", e);
+                        0
                     }
-                }
+                },
                 Err(e) => {
                     warn!("Failed to read size: {}", e);
                     0

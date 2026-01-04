@@ -1,13 +1,14 @@
 pub mod devices;
+pub mod platform;
+
 use anyhow::{Context, Result};
-use libc::{O_DIRECT, O_DSYNC, O_SYNC};
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use lzma::reader::LzmaReader;
+use platform::PlatformDevice;
 use sha2::{Digest, Sha256};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::BufWriter;
 use std::io::{BufReader, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use tempfile::NamedTempFile;
 
 /// Calculate the checksum of the data read from the given reader
@@ -16,7 +17,8 @@ fn calculate_checksum<R: Read>(reader: &mut R, size: usize) -> Result<String> {
     let mut buffer: Vec<u8> = Vec::with_capacity(size);
 
     loop {
-        let bytes_read = reader.read(&mut buffer)
+        let bytes_read = reader
+            .read(&mut buffer)
             .context("Failed to read data for checksum calculation")?;
         if bytes_read == 0 {
             break;
@@ -46,14 +48,8 @@ where
         );
     }
 
-    // Open the device file with Direct IO
-    let mut device_file = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_DIRECT)
-        .custom_flags(O_SYNC)
-        .custom_flags(O_DSYNC)
-        .open(&device_path)
-        .context(format!("Failed to open device file: {}", device_path))?;
+    // Get platform-specific device reader
+    let mut device_reader = PlatformDevice::new_reader(&device_path)?;
 
     // Open the output file for writing
     let output_file = File::create(&output_path)
@@ -65,12 +61,14 @@ where
 
     // Read from the device and write to the file
     loop {
-        let bytes_read = device_file.read(&mut buffer)
+        let bytes_read = device_reader
+            .read(&mut buffer)
             .context("Failed to read from device")?;
         if bytes_read == 0 {
             break; // End of file
         }
-        writer.write_all(&buffer[..bytes_read])
+        writer
+            .write_all(&buffer[..bytes_read])
             .context("Failed to write to output file")?;
         total_bytes_read += bytes_read;
         if !silent {
@@ -112,13 +110,13 @@ where
             channel,
         )
     } else {
-        let mut img_file = File::open(&img_path)
-            .context(format!("Image file not found: {}", img_path))?;
-        let file_size = img_file.metadata()
+        let mut img_file =
+            File::open(&img_path).context(format!("Image file not found: {}", img_path))?;
+        let file_size = img_file
+            .metadata()
             .context("Failed to read image file metadata")?
             .len();
-        let file_size_usize = usize::try_from(file_size)
-            .context("File size too large")?;
+        let file_size_usize = usize::try_from(file_size).context("File size too large")?;
         let img_checksum = calculate_checksum(&mut img_file, file_size_usize)
             .context("Failed to calculate image checksum")?;
 
@@ -126,17 +124,11 @@ where
             info!("Source image checksum: {}", img_checksum);
         }
 
-        // Write the image to the device
-        let mut device_file = OpenOptions::new()
-            .write(true)
-            .custom_flags(O_DIRECT)
-            .custom_flags(O_SYNC)
-            .custom_flags(O_DSYNC)
-            .open(device_path.clone())
-            .context(format!("Failed to open device file: {}", device_path))?;
+        // Get platform-specific device writer
+        let mut device_writer = PlatformDevice::new_writer(&device_path)?;
 
-        let img_file = File::open(&img_path)
-            .context(format!("Failed to open image file: {}", img_path))?;
+        let img_file =
+            File::open(&img_path).context(format!("Failed to open image file: {}", img_path))?;
 
         let mut reader = BufReader::new(img_file);
         let mut buffer = vec![0u8; block_size];
@@ -150,7 +142,8 @@ where
             if bytes_read == 0 {
                 break;
             }
-            device_file.write_all(&buffer[..bytes_read])
+            device_writer
+                .write_all(&buffer[..bytes_read])
                 .context("Failed to write to device")?;
             count += bytes_read;
             let percentage = (count * 100) / file_size as usize;
@@ -167,11 +160,14 @@ where
             };
         }
 
-        // Calculate the checksum of the data on the SD card
-        let device_file_ = File::open(&device_path)
-            .context(format!("Failed to open device file for verification: {}", device_path))?;
-        let mut reader = BufReader::new(device_file_);
-        let device_checksum = calculate_checksum(&mut reader, file_size_usize)
+        // Flush and sync the device writer
+        device_writer
+            .flush_and_sync()
+            .context("Failed to flush and sync device")?;
+
+        // Calculate the checksum of the data on the device
+        let mut device_reader = PlatformDevice::new_reader(&device_path)?;
+        let device_checksum = calculate_checksum(&mut device_reader, file_size_usize)
             .context("Failed to calculate device checksum")?;
         if !silent {
             info!("Device checksum: {}", device_checksum);
@@ -183,7 +179,7 @@ where
                 info!("Checksums match. Write operation successful.");
             }
         } else {
-            error!("Checksums do not match. Write operation may have failed.");
+            log::error!("Checksums do not match. Write operation may have failed.");
             anyhow::bail!("Checksums do not match");
         }
 
@@ -203,16 +199,17 @@ pub fn flash_xz<F>(
 where
     F: Fn(f64),
 {
-    let temp_file = NamedTempFile::new()
-        .context("Failed to create temporary file")?;
+    let temp_file = NamedTempFile::new().context("Failed to create temporary file")?;
 
-    let temp_file_str = temp_file.path().to_str()
+    let temp_file_str = temp_file
+        .path()
+        .to_str()
         .context("Failed to convert path to string")?
         .to_string();
-    
+
     info!("Using temporary file: {}", temp_file_str);
     decompress_img(img_path.clone(), temp_file_str.clone())?;
-    
+
     let result = flash(
         temp_file_str.clone(),
         device_path,
@@ -221,13 +218,13 @@ where
         callback_fn,
         channel,
     );
-    
+
     // Clean up temp file
     debug!("Deleting temporary file");
     if let Err(e) = std::fs::remove_file(&temp_file_str) {
         warn!("Failed to remove temporary file: {}", e);
     }
-    
+
     result.context("Flash operation failed")?;
     info!("Flash successful");
     Ok(())
@@ -235,11 +232,16 @@ where
 
 /// decompress the input image and write to the output file
 fn decompress_img(compressed_file: String, decompressed_file: String) -> Result<()> {
-    info!("Decompressing: {} to {}", compressed_file, decompressed_file);
+    info!(
+        "Decompressing: {} to {}",
+        compressed_file, decompressed_file
+    );
 
     // Open the input file
-    let input_file = File::open(&compressed_file)
-        .context(format!("Failed to open compressed file: {}", compressed_file))?;
+    let input_file = File::open(&compressed_file).context(format!(
+        "Failed to open compressed file: {}",
+        compressed_file
+    ))?;
     let buffered_reader = BufReader::new(input_file);
 
     // Create the LzmaReader
@@ -247,8 +249,10 @@ fn decompress_img(compressed_file: String, decompressed_file: String) -> Result<
         .context("Failed to create LZMA decompressor")?;
 
     // Open the output file
-    let mut output_file = File::create(&decompressed_file)
-        .context(format!("Failed to create output file: {}", decompressed_file))?;
+    let mut output_file = File::create(&decompressed_file).context(format!(
+        "Failed to create output file: {}",
+        decompressed_file
+    ))?;
 
     // Choose a buffer size (you can change this size as needed)
     let buffer_size = 33554432;
@@ -256,12 +260,14 @@ fn decompress_img(compressed_file: String, decompressed_file: String) -> Result<
 
     // Read from the decoder and write to the output file
     loop {
-        let bytes_read = decoder.read(&mut buffer)
+        let bytes_read = decoder
+            .read(&mut buffer)
             .context("Failed to read from compressed stream")?;
         if bytes_read == 0 {
             break;
         }
-        output_file.write_all(&buffer[..bytes_read])
+        output_file
+            .write_all(&buffer[..bytes_read])
             .context("Failed to write decompressed data")?;
         debug!("{} bytes decompressed", bytes_read);
     }
