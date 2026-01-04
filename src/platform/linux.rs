@@ -49,7 +49,9 @@ impl DeviceWriter for LinuxDeviceWriter {
         debug!("Opening Linux device for writing: {}", device_path);
         let file = OpenOptions::new()
             .write(true)
-            .custom_flags(O_DIRECT | O_SYNC | O_DSYNC)
+            .custom_flags(O_DIRECT)
+            .custom_flags(O_SYNC)
+            .custom_flags(O_DSYNC)
             .open(device_path)
             .context(format!(
                 "Failed to open device for writing: {}",

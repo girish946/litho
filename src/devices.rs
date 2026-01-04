@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -14,6 +15,16 @@ pub struct DeviceInfo {
     pub model_name: String,
     pub removable: u8,
     pub size: u64,
+}
+
+impl fmt::Display for DeviceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            json!(self).to_string()
+        )
+    }
 }
 
 /// function to read the file contents as a string
@@ -46,9 +57,9 @@ pub fn is_removable_device(device_path: &str) -> Result<bool> {
     Ok(contents.trim() == "1")
 }
 
-pub fn get_storage_devices() -> Result<Vec<String>> {
+pub fn get_storage_devices() -> Result<Vec<DeviceInfo>> {
     let paths = fs::read_dir("/sys/block/").context("Failed to read /sys/block/ directory")?;
-    let mut devices: Vec<String> = Vec::new();
+    let mut devices: Vec<DeviceInfo> = Vec::new();
 
     for path in paths {
         let p = path.context("Failed to read directory entry")?;
@@ -146,8 +157,7 @@ pub fn get_storage_devices() -> Result<Vec<String>> {
                             removable: 1,
                             size,
                         };
-                        let device_json = json!(dev_info).to_string();
-                        devices.push(device_json);
+                        devices.push(dev_info);
                     } else if removable == "0\n" {
                         let dev_info = DeviceInfo {
                             device_name: dev_path.display().to_string(),
@@ -156,8 +166,7 @@ pub fn get_storage_devices() -> Result<Vec<String>> {
                             removable: 0,
                             size,
                         };
-                        let dev_json = json!(dev_info).to_string();
-                        devices.push(dev_json);
+                        devices.push(dev_info);
                     }
                 }
             }
