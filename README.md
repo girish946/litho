@@ -10,16 +10,18 @@ An interactive terminal UI is available via the `litho-tui` binary:
 cargo run --bin litho-tui
 ```
 
-<div id="litho-tui-demo"></div>
-<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
-<script>
-  AsciinemaPlayer.create('demo.cast', document.getElementById('litho-tui-demo'));
-</script>
+[![TUI demo](demo.gif)](demo.cast)
 
-Or play the recording locally:
+Play the full recording locally:
 
 ```bash
 asciinema play demo.cast
+```
+
+To regenerate the preview GIF after re-recording:
+
+```bash
+agg demo.cast demo.gif
 ```
 
 ## Command usage
