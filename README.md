@@ -2,6 +2,26 @@
 
 A simple and lightweight library and CLI tool to write images to block devices.
 
+## TUI
+
+An interactive terminal UI is available via the `litho-tui` binary:
+
+```bash
+cargo run --bin litho-tui
+```
+
+<div id="litho-tui-demo"></div>
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
+<script>
+  AsciinemaPlayer.create('demo.cast', document.getElementById('litho-tui-demo'));
+</script>
+
+Or play the recording locally:
+
+```bash
+asciinema play demo.cast
+```
+
 ## Command usage
 
 - Cloning a device to an image file:
