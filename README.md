@@ -32,6 +32,35 @@ Options:
   -h, --help                     Print help
 ```
 
+## Building portable Linux binaries
+
+**Problem:** If you compile on a bleeding-edge Linux distribution, the resulting binary will depend on a very new glibc (you may see `GLIBC_2.43 not found` or similar on older systems like Ubuntu 22.04/24.04, Debian 12, etc.).
+
+### Best option: Fully static musl build (recommended for the `litho` CLI)
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl --bin litho
+```
+
+The binary will be at:
+`target/x86_64-unknown-linux-musl/release/litho`
+
+This is almost completely static and runs on virtually any x86_64 Linux.
+
+Copy it to `lithographer/src-tauri/resources/litho` before building the GUI.
+
+(The vendored OpenSSL in this `Cargo.toml` makes musl builds much easier.)
+
+### Good alternative: Build inside an older container
+
+```bash
+docker run --rm -v "$PWD":/src -w /src rust:1.80-slim-bookworm \
+  cargo build --release --bin litho
+```
+
+This will only require glibc ~2.36, which is compatible with most current distros.
+
 ## API usage
 
 - Clone a device to an image file:
