@@ -40,7 +40,7 @@ pub fn ui(f: &mut Frame, app: &App) {
 
     render_header(f, app, layout.header);
     render_main_card(f, app, layout.main_card, layout.compact);
-    render_footer(f, app, layout.footer);
+    render_footer(f, app, layout.footer, layout.show_shortcut_hints);
 
     match app.dialog {
         Dialog::None => {}
@@ -446,19 +446,31 @@ fn render_controls(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+fn render_footer(f: &mut Frame, app: &App, area: Rect, show_shortcut_hints: bool) {
     let privilege_text = if app.is_root {
         "Privileged"
     } else {
         "Administrator privileges required for flash/clone"
     };
 
-    let line = Line::from(vec![
+    let mut spans = vec![
         Span::styled("Made with ♥ by Girish Joshi", Style::default().fg(MUTED)),
         Span::raw("   │   "),
         Span::styled(privilege_text, Style::default().fg(MUTED)),
-    ]);
-    f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
+    ];
+
+    if show_shortcut_hints {
+        spans.push(Span::raw("   │   "));
+        spans.push(Span::styled(
+            "Tab · q quit · Enter start",
+            Style::default().fg(MUTED),
+        ));
+    }
+
+    f.render_widget(
+        Paragraph::new(Line::from(spans)).alignment(Alignment::Center),
+        area,
+    );
 }
 
 pub fn render_device_picker_dialog(f: &mut Frame, app: &App, list_index: usize) {

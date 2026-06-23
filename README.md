@@ -115,6 +115,9 @@ Regenerate the preview GIF after re-recording:
 
 ```bash
 agg demo.cast demo.gif
+# or
+./scripts/record-demo.sh record
+./scripts/record-demo.sh gif
 ```
 
 ### Launch options
@@ -131,6 +134,10 @@ litho-tui --help
 | `--start` | Start the operation immediately when already privileged (see below) |
 | `--log-file` | Log file path (default: `~/.cache/litho/litho-tui.log`) |
 | `--log-level` | `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
+
+Debug logging to stderr (before the TUI starts): `--log-file=-` or `LITHO_LOG_STDERR=1`.
+
+Log files rotate to `.log.old` when they exceed 5 MiB.
 
 ### Keyboard shortcuts
 

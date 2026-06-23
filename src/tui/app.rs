@@ -81,7 +81,7 @@ pub struct App {
 
 impl App {
     pub fn new(launch: LaunchParams) -> App {
-        let devices = liblitho::devices::get_storage_devices().unwrap_or_default();
+        let devices = load_storage_devices(launch.device.is_some());
         let mut selected_device_index = default_device_index(&devices);
 
         let operation = match launch.mode.as_deref() {
@@ -220,11 +220,19 @@ impl App {
 
     pub fn confirm_elevation(&mut self, accept: bool, terminal: &mut TuiTerminal) {
         if accept {
-            if !polkit_agent_available() {
+            if !crate::tui::privilege::pkexec_on_path() {
+                self.set_status(
+                    StatusState::Error,
+                    String::from("pkexec not found. Install polkit (pkexec)."),
+                );
+                self.dialog = Dialog::None;
+                return;
+            }
+            if crate::tui::privilege::find_polkit_auth_agent().is_none() {
                 self.set_status(
                     StatusState::Error,
                     String::from(
-                        "pkexec not found. Install polkit and ensure a polkit agent is running.",
+                        "No polkit authentication agent found. Start your desktop polkit agent.",
                     ),
                 );
                 self.dialog = Dialog::None;
@@ -633,6 +641,18 @@ impl App {
 
         Ok(())
     }
+}
+
+fn load_storage_devices(refresh_for_prefill: bool) -> Vec<DeviceInfo> {
+    if refresh_for_prefill {
+        info!("Refreshing device list for --device pre-fill");
+    }
+    liblitho::devices::get_storage_devices().unwrap_or_else(|e| {
+        if refresh_for_prefill {
+            log::warn!("Failed to load devices for pre-fill: {e}");
+        }
+        Vec::new()
+    })
 }
 
 fn default_clone_filename(app: &App) -> String {

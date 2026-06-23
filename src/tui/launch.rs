@@ -80,6 +80,42 @@ mod tests {
     }
 
     #[test]
+    fn tui_cli_parses_launch_args() {
+        let cli = TuiCli::try_parse_from([
+            "litho-tui",
+            "--mode",
+            "clone",
+            "--device",
+            "/dev/sdb",
+            "--image",
+            "/tmp/out.img",
+            "--start",
+            "--log-level",
+            "debug",
+        ])
+        .expect("parse");
+
+        assert_eq!(cli.mode.as_deref(), Some("clone"));
+        assert_eq!(cli.device.as_deref(), Some("/dev/sdb"));
+        assert_eq!(cli.image.as_deref(), Some("/tmp/out.img"));
+        assert!(cli.start);
+        assert_eq!(cli.log_level, "debug");
+
+        let launch: LaunchParams = cli.into();
+        assert_eq!(launch.mode.as_deref(), Some("clone"));
+        assert_eq!(launch.device.as_deref(), Some("/dev/sdb"));
+        assert_eq!(launch.image.as_deref(), Some("/tmp/out.img"));
+        assert!(launch.start);
+    }
+
+    #[test]
+    fn tui_cli_file_alias_maps_to_image() {
+        let cli = TuiCli::try_parse_from(["litho-tui", "-f", "/tmp/disk.img"]).unwrap();
+        let launch: LaunchParams = cli.into();
+        assert_eq!(launch.image.as_deref(), Some("/tmp/disk.img"));
+    }
+
+    #[test]
     fn launch_prefilled_detects_any_launch_arg() {
         assert!(launch_prefilled(
             &LaunchParams {

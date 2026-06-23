@@ -13,6 +13,7 @@ pub struct UiLayout {
     pub footer: Rect,
     pub too_small: bool,
     pub compact: bool,
+    pub show_shortcut_hints: bool,
 }
 
 pub fn terminal_too_small(area: Rect) -> bool {
@@ -27,10 +28,12 @@ pub fn compute_layout(area: Rect) -> UiLayout {
             footer: Rect::default(),
             too_small: true,
             compact: true,
+            show_shortcut_hints: false,
         };
     }
 
     let compact = area.width < PANEL_WIDTH_FULL || area.height < 40;
+    let show_shortcut_hints = !compact && area.height >= 30;
     let panel_width = area
         .width
         .saturating_sub(2)
@@ -89,6 +92,7 @@ pub fn compute_layout(area: Rect) -> UiLayout {
         footer: sections[2],
         too_small: false,
         compact,
+        show_shortcut_hints,
     }
 }
 
@@ -163,6 +167,14 @@ mod tests {
         assert!(layout.header.y + layout.header.height <= area.y + area.height);
         assert!(layout.main_card.y + layout.main_card.height <= area.y + area.height);
         assert!(layout.footer.y + layout.footer.height <= area.y + area.height);
+    }
+
+    #[test]
+    fn show_shortcut_hints_when_terminal_tall_enough() {
+        let layout = compute_layout(rect(100, 40));
+        assert!(layout.show_shortcut_hints);
+        let small = compute_layout(rect(100, 28));
+        assert!(!small.show_shortcut_hints);
     }
 
     #[test]

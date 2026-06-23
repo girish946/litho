@@ -25,6 +25,14 @@ All notable changes to the `litho` crate and binaries are documented here.
 - **CLI clone** — correct argument order (`device`, then `file`).
 - **TUI terminal errors** — TTY checks, logged terminal init/shutdown failures, terminal recovery after failed elevation.
 
+### Added (alignment pass — pre real TUI I/O)
+
+- Stronger polkit detection (`find_polkit_auth_agent` + `pkexec` on PATH)
+- TUI logging: `--log-file=-`, `LITHO_LOG_STDERR=1`, 5 MiB log rotation
+- Device list refresh log when `--device` pre-fills launch
+- Footer shortcut hints on tall terminals; `scripts/record-demo.sh` for P11
+- Extra tests: clap launch parsing, clone-style progress %, layout hints
+
 ### Added (remaining work P1–P10)
 
 - **TUI** — `tui/operation.rs` operation runner (simulated progress; real `liblitho` I/O disabled in TUI)
