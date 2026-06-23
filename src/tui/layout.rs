@@ -31,7 +31,11 @@ pub fn compute_layout(area: Rect) -> UiLayout {
     }
 
     let compact = area.width < PANEL_WIDTH_FULL || area.height < 40;
-    let panel_width = area.width.saturating_sub(2).min(PANEL_WIDTH_FULL).max(MIN_COLS - 2);
+    let panel_width = area
+        .width
+        .saturating_sub(2)
+        .min(PANEL_WIDTH_FULL)
+        .max(MIN_COLS - 2);
 
     let main_card_height = if compact {
         area.height
@@ -72,7 +76,9 @@ pub fn compute_layout(area: Rect) -> UiLayout {
         .spacing(1)
         .constraints([
             Constraint::Length(HEADER_HEIGHT.min(panel.height)),
-            Constraint::Min(main_card_height.min(panel.height.saturating_sub(HEADER_HEIGHT + FOOTER_HEIGHT))),
+            Constraint::Min(
+                main_card_height.min(panel.height.saturating_sub(HEADER_HEIGHT + FOOTER_HEIGHT)),
+            ),
             Constraint::Length(FOOTER_HEIGHT.min(panel.height)),
         ])
         .split(panel);
@@ -124,4 +130,48 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect::new(x, y, width, height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(w: u16, h: u16) -> Rect {
+        Rect::new(0, 0, w, h)
+    }
+
+    #[test]
+    fn terminal_too_small_below_minimum() {
+        assert!(terminal_too_small(rect(59, 24)));
+        assert!(terminal_too_small(rect(60, 23)));
+        assert!(!terminal_too_small(rect(60, 24)));
+    }
+
+    #[test]
+    fn compute_layout_too_small_gate() {
+        let layout = compute_layout(rect(50, 20));
+        assert!(layout.too_small);
+        assert_eq!(layout.header, Rect::default());
+    }
+
+    #[test]
+    fn compute_layout_fits_within_parent() {
+        let area = rect(100, 50);
+        let layout = compute_layout(area);
+        assert!(!layout.too_small);
+        assert!(layout.header.y >= area.y);
+        assert!(layout.header.y + layout.header.height <= area.y + area.height);
+        assert!(layout.main_card.y + layout.main_card.height <= area.y + area.height);
+        assert!(layout.footer.y + layout.footer.height <= area.y + area.height);
+    }
+
+    #[test]
+    fn centered_rect_never_exceeds_area() {
+        let area = rect(40, 20);
+        let popup = centered_rect(100, 100, area);
+        assert!(popup.width <= area.width);
+        assert!(popup.height <= area.height);
+        assert!(popup.x >= area.x);
+        assert!(popup.y >= area.y);
+    }
 }

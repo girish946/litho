@@ -3,13 +3,13 @@ use crate::tui::helpers::{
     device_label, device_list_entry, device_path, file_basename, file_section_label, format_size,
 };
 use crate::tui::layout::{
-    centered_rect, compute_layout, main_card_constraints, PANEL_WIDTH_FULL, MIN_COLS, MIN_ROWS,
+    centered_rect, compute_layout, main_card_constraints, MIN_COLS, MIN_ROWS, PANEL_WIDTH_FULL,
 };
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Clear, Gauge, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, Gauge, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use std::path::Path;
@@ -29,10 +29,7 @@ const RED: Color = Color::Rgb(248, 113, 113);
 
 pub fn ui(f: &mut Frame, app: &App) {
     f.render_widget(Clear, f.area());
-    f.render_widget(
-        Block::default().style(Style::default().bg(BG)),
-        f.area(),
-    );
+    f.render_widget(Block::default().style(Style::default().bg(BG)), f.area());
 
     let layout = compute_layout(f.area());
 
@@ -61,9 +58,7 @@ fn render_terminal_too_small(f: &mut Frame, area: Rect) {
     let text = vec![
         Line::from(Span::styled(
             "Terminal too small",
-            Style::default()
-                .fg(AMBER)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(AMBER).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(Span::styled(
@@ -100,7 +95,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         ("● unprivileged", AMBER)
     };
 
-    let title_line = Line::from(vec![
+    let mut title_spans = vec![
         Span::styled(
             "lithographer",
             Style::default()
@@ -109,9 +104,23 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::raw("     "),
         Span::styled(status_label, Style::default().fg(status_color)),
-    ]);
+    ];
+
+    if !app.is_root {
+        let (polkit_label, polkit_color) = if app.polkit_available {
+            ("polkit ready", EMERALD)
+        } else {
+            ("no polkit agent", RED)
+        };
+        title_spans.push(Span::raw("     "));
+        title_spans.push(Span::styled(
+            polkit_label,
+            Style::default().fg(polkit_color),
+        ));
+    }
+
     f.render_widget(
-        Paragraph::new(title_line).alignment(Alignment::Left),
+        Paragraph::new(Line::from(title_spans)).alignment(Alignment::Left),
         rows[0],
     );
     f.render_widget(
@@ -227,7 +236,10 @@ fn render_mode_card(
 
     let text = vec![
         Line::from(Span::styled(desc, Style::default().fg(MUTED))),
-        Line::from(Span::styled(hint, Style::default().fg(Color::Rgb(63, 63, 70)))),
+        Line::from(Span::styled(
+            hint,
+            Style::default().fg(Color::Rgb(63, 63, 70)),
+        )),
     ];
     f.render_widget(Paragraph::new(text), inner);
 }
@@ -304,10 +316,7 @@ fn render_file_select(f: &mut Frame, app: &App, area: Rect) {
             ),
         }
     } else {
-        (
-            file_basename(&app.image_file),
-            app.image_file.clone(),
-        )
+        (file_basename(&app.image_file), app.image_file.clone())
     };
 
     let block = Block::default()
@@ -363,11 +372,7 @@ fn render_status(f: &mut Frame, app: &App, area: Rect) {
 fn render_progress(f: &mut Frame, app: &App, area: Rect) {
     let pct = app.progress.clamp(0.0, 100.0) as u16;
     let gauge = Gauge::default()
-        .gauge_style(
-            Style::default()
-                .fg(ACCENT)
-                .bg(Color::Rgb(39, 39, 42)),
-        )
+        .gauge_style(Style::default().fg(ACCENT).bg(Color::Rgb(39, 39, 42)))
         .ratio(pct as f64 / 100.0)
         .label(format!("{}%", pct));
 
@@ -378,10 +383,7 @@ fn render_controls(f: &mut Frame, app: &App, area: Rect) {
     let cols = if app.is_running {
         Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(70),
-                Constraint::Percentage(30),
-            ])
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(area)
     } else {
         Layout::default()
@@ -400,7 +402,9 @@ fn render_controls(f: &mut Frame, app: &App, area: Rect) {
     let start_style = if app.is_running {
         Style::default().fg(MUTED)
     } else {
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
     };
 
     let start_block = Block::default()
@@ -454,10 +458,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         Span::raw("   │   "),
         Span::styled(privilege_text, Style::default().fg(MUTED)),
     ]);
-    f.render_widget(
-        Paragraph::new(line).alignment(Alignment::Center),
-        area,
-    );
+    f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
 }
 
 pub fn render_device_picker_dialog(f: &mut Frame, app: &App, list_index: usize) {
@@ -466,11 +467,7 @@ pub fn render_device_picker_dialog(f: &mut Frame, app: &App, list_index: usize) 
         .max(40)
         .min(f.area().width.saturating_sub(4));
 
-    let max_list_rows = f
-        .area()
-        .height
-        .saturating_sub(8)
-        .max(3) as usize;
+    let max_list_rows = f.area().height.saturating_sub(8).max(3) as usize;
     let estimated_visible = app.devices.len().clamp(1, max_list_rows);
     let dialog_height = (estimated_visible as u16 + 5).min(f.area().height.saturating_sub(2));
 
@@ -568,10 +565,7 @@ pub fn render_output_filename_dialog(
     let mut text = vec![
         Line::from(vec![
             Span::styled("Save to: ", Style::default().fg(MUTED)),
-            Span::styled(
-                directory.display().to_string(),
-                Style::default().fg(TEXT),
-            ),
+            Span::styled(directory.display().to_string(), Style::default().fg(TEXT)),
         ]),
         Line::from(Span::styled(
             "File will be created when cloning starts.",

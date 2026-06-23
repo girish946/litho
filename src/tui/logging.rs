@@ -18,9 +18,7 @@ impl Default for LogOptions {
 }
 
 fn default_log_path() -> PathBuf {
-    dirs_fallback()
-        .join("litho")
-        .join("litho-tui.log")
+    dirs_fallback().join("litho").join("litho-tui.log")
 }
 
 fn dirs_fallback() -> PathBuf {

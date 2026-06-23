@@ -64,6 +64,12 @@ sudo litho flash -f image.img -d /dev/sdX -s true   # suppress progress logs
 | `-b, --block-size` | I/O buffer size in bytes (default: `4096`) |
 | `-s, --silent` | Suppress progress output (`true` / `false`, default: `false`) |
 
+Global option (all subcommands):
+
+| Option | Description |
+|--------|-------------|
+| `--json-progress` | Emit one JSON line per `OperationProgress` event on stdout |
+
 ### Clone
 
 Read a block device into an image file. **Argument order:** `--device` first in the API; the CLI accepts both flags in any order.
@@ -171,9 +177,9 @@ Terminal initialization failures and elevation errors are recorded there. Exampl
 litho-tui --log-level debug --log-file /tmp/litho-tui.log
 ```
 
-### TUI simulation mode
+### Simulation mode
 
-The TUI currently runs a **simulated** progress loop for flash/clone (no real disk I/O). Use the `litho` CLI or the library API for actual operations. The status line indicates simulation explicitly.
+The TUI runs a **simulated** progress loop for flash/clone — it does **not** call `liblitho::flash` or `clone`. Use the `litho` CLI or library API for real disk I/O. The status line indicates simulation explicitly.
 
 ### Device list notes
 

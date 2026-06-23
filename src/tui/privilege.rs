@@ -42,7 +42,8 @@ fn elevated_args(mode: &str, device: &str, image: &str) -> [String; 6] {
 pub fn relaunch_elevated(mode: &str, device: &str, image: &str) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
 
-    let exe = std::env::current_exe().map_err(|e| format!("Could not resolve executable: {}", e))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Could not resolve executable: {}", e))?;
     let args = elevated_args(mode, device, image);
 
     let mut cmd = if is_running_as_root() {
@@ -70,7 +71,8 @@ pub fn relaunch_elevated(mode: &str, device: &str, image: &str) -> Result<(), St
 /// Non-Unix fallback: spawn and let the caller exit.
 #[cfg(not(unix))]
 pub fn relaunch_elevated(mode: &str, device: &str, image: &str) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("Could not resolve executable: {}", e))?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Could not resolve executable: {}", e))?;
     let args = elevated_args(mode, device, image);
 
     let mut cmd = if is_running_as_root() {

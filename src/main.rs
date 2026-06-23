@@ -2,10 +2,15 @@ use clap::{Parser, Subcommand};
 use liblitho::progress::OperationProgress;
 use liblitho::{clone, flash};
 use log::{error, info};
+use std::io::{self, Write};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
+    /// emit one JSON object per progress event on stdout (implies --silent for log output)
+    #[arg(long, global = true)]
+    json_progress: bool,
+
     #[clap(subcommand)]
     command: Commands,
 }
@@ -61,6 +66,15 @@ fn log_progress(p: OperationProgress) {
     }
 }
 
+fn json_progress_line(p: OperationProgress) {
+    match serde_json::to_string(&p) {
+        Ok(line) => {
+            let _ = writeln!(io::stdout(), "{line}");
+        }
+        Err(e) => error!("Failed to serialize progress: {e}"),
+    }
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -76,19 +90,17 @@ fn main() {
                 file, device, block_size, silent
             );
             let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false);
+            let silent = silent.unwrap_or(false) || cli.json_progress;
 
-            match clone(
-                device,
-                file,
-                blk_size,
-                silent,
-                if silent {
-                    None
-                } else {
-                    Some(log_progress)
-                },
-            ) {
+            let progress = if cli.json_progress {
+                Some(json_progress_line as fn(OperationProgress))
+            } else if silent {
+                None
+            } else {
+                Some(log_progress as fn(OperationProgress))
+            };
+
+            match clone(device, file, blk_size, silent, progress) {
                 Ok(()) => info!("Clone operation completed successfully"),
                 Err(e) => error!("Clone operation failed: {}", e),
             };
@@ -104,19 +116,17 @@ fn main() {
                 file, device, block_size, silent
             );
             let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false);
+            let silent = silent.unwrap_or(false) || cli.json_progress;
 
-            match flash(
-                file,
-                device,
-                blk_size,
-                silent,
-                if silent {
-                    None
-                } else {
-                    Some(log_progress)
-                },
-            ) {
+            let progress = if cli.json_progress {
+                Some(json_progress_line as fn(OperationProgress))
+            } else if silent {
+                None
+            } else {
+                Some(log_progress as fn(OperationProgress))
+            };
+
+            match flash(file, device, blk_size, silent, progress) {
                 Ok(_) => info!("Flash operation completed successfully"),
                 Err(e) => error!("Flash operation failed: {}", e),
             }

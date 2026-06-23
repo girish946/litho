@@ -25,8 +25,15 @@ All notable changes to the `litho` crate and binaries are documented here.
 - **CLI clone** — correct argument order (`device`, then `file`).
 - **TUI terminal errors** — TTY checks, logged terminal init/shutdown failures, terminal recovery after failed elevation.
 
+### Added (remaining work P1–P10)
+
+- **TUI** — `tui/operation.rs` operation runner (simulated progress; real `liblitho` I/O disabled in TUI)
+- **TUI** — focus **Start** when launch args pre-fill; polkit hint in header; richer startup logs
+- **CLI** — `--json-progress` emits JSON `OperationProgress` lines on stdout
+- **Tests** — layout and launch unit tests; `OperationProgress` derives `Serialize`
+
 ### Known limitations
 
-- **TUI** — flash/clone operations are simulated; use the `litho` CLI or library for real I/O.
+- **TUI** — flash/clone are simulated; use the `litho` CLI or library for real I/O.
 - **Device vendor** — NVMe drives often lack `/sys/block/.../device/vendor`; a warn-level log is expected.
 - **Platform** — device enumeration and full E2E support are Linux-first; see `platform-support.md`.

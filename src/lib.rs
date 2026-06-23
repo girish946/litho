@@ -123,14 +123,7 @@ where
         info!("Detected compressed image, calling flash_xz");
         flash_xz(img_path, device_path, block_size, silent, progress)
     } else {
-        flash_image(
-            img_path,
-            device_path,
-            block_size,
-            silent,
-            progress,
-            false,
-        )
+        flash_image(img_path, device_path, block_size, silent, progress, false)
     }
 }
 
@@ -252,8 +245,7 @@ where
         emit_progress(
             silent,
             &mut progress,
-            OperationProgress::new(OperationPhase::Failed)
-                .with_message("Checksums do not match"),
+            OperationProgress::new(OperationPhase::Failed).with_message("Checksums do not match"),
         );
         log::error!("Checksums do not match. Write operation may have failed.");
         anyhow::bail!("Checksums do not match");

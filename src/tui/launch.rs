@@ -62,3 +62,40 @@ pub fn normalize_mode(mode: &str) -> String {
         "flash".to_string()
     }
 }
+
+/// True when launch args pre-fill the form and the UI should focus Start (unless `--start`).
+pub fn launch_prefilled(launch: &LaunchParams, image_file_nonempty: bool) -> bool {
+    launch.mode.is_some() || launch.device.is_some() || image_file_nonempty
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_mode_maps_backup_to_clone() {
+        assert_eq!(normalize_mode("backup"), "clone");
+        assert_eq!(normalize_mode("CLONE"), "clone");
+        assert_eq!(normalize_mode("flash"), "flash");
+    }
+
+    #[test]
+    fn launch_prefilled_detects_any_launch_arg() {
+        assert!(launch_prefilled(
+            &LaunchParams {
+                mode: Some("flash".into()),
+                ..Default::default()
+            },
+            false
+        ));
+        assert!(launch_prefilled(
+            &LaunchParams {
+                device: Some("/dev/sdb".into()),
+                ..Default::default()
+            },
+            false
+        ));
+        assert!(launch_prefilled(&LaunchParams::default(), true));
+        assert!(!launch_prefilled(&LaunchParams::default(), false));
+    }
+}

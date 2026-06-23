@@ -1,10 +1,10 @@
 use crate::tui::helpers::{
     default_device_index, device_display_name, device_label, device_path, file_basename,
 };
-use crate::tui::launch::LaunchParams;
-use crate::tui::privilege::{
-    is_running_as_root, polkit_agent_available, relaunch_elevated,
-};
+use crate::tui::launch::{launch_prefilled, LaunchParams};
+use crate::tui::layout::{terminal_too_small, MIN_COLS, MIN_ROWS};
+use crate::tui::operation::spawn_operation;
+use crate::tui::privilege::{is_running_as_root, polkit_agent_available, relaunch_elevated};
 use crate::tui::ui::{
     render_device_picker_dialog, render_file_picker_hint, render_output_filename_dialog, ui,
 };
@@ -18,11 +18,7 @@ use fpicker::{FileExplorer, Theme};
 use liblitho::devices::DeviceInfo;
 use liblitho::progress::{OperationPhase, OperationProgress};
 use log::{error, info};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::Rect,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, layout::Rect, Terminal};
 use std::io::{self, IsTerminal, Stdout};
 use std::path::Path;
 use std::sync::{
@@ -78,7 +74,9 @@ pub struct App {
     pub progress_rx: Receiver<OperationProgress>,
     pub operation_cancel: Arc<AtomicBool>,
     pub is_root: bool,
+    pub polkit_available: bool,
     pub auto_start_pending: bool,
+    pub terminal_warn_logged: bool,
 }
 
 impl App {
@@ -92,17 +90,25 @@ impl App {
         };
 
         if let Some(ref wanted_device) = launch.device {
-            if let Some(idx) = devices.iter().position(|d| {
-                device_path(d) == *wanted_device || d.device_name == *wanted_device
-            }) {
+            if let Some(idx) = devices
+                .iter()
+                .position(|d| device_path(d) == *wanted_device || d.device_name == *wanted_device)
+            {
                 selected_device_index = idx;
             }
         }
 
-        let image_file = launch.image.unwrap_or_default();
+        let image_prefilled = launch.image.as_ref().is_some_and(|path| !path.is_empty());
         let is_root = is_running_as_root();
         let auto_start_pending = launch.start && is_root;
+        let polkit_available = is_root || polkit_agent_available();
+        let focus = if launch_prefilled(&launch, image_prefilled) && !auto_start_pending {
+            InputFocus::Start
+        } else {
+            InputFocus::Mode
+        };
 
+        let image_file = launch.image.unwrap_or_default();
         let (_tx, progress_rx) = mpsc::channel();
 
         App {
@@ -110,7 +116,7 @@ impl App {
             devices,
             selected_device_index,
             operation,
-            focus: InputFocus::Mode,
+            focus,
             is_running: false,
             progress: 0.0,
             status_state: StatusState::Ready,
@@ -119,7 +125,9 @@ impl App {
             progress_rx,
             operation_cancel: Arc::new(AtomicBool::new(false)),
             is_root,
+            polkit_available,
             auto_start_pending,
+            terminal_warn_logged: false,
         }
     }
 
@@ -189,7 +197,9 @@ impl App {
                 format!("Target: {}", device_label(device)),
             );
         } else {
-            self.dialog = Dialog::NonRemovableConfirm { target_index: index };
+            self.dialog = Dialog::NonRemovableConfirm {
+                target_index: index,
+            };
         }
     }
 
@@ -200,10 +210,7 @@ impl App {
                 if let Some(device) = self.devices.get(target_index) {
                     self.set_status(
                         StatusState::Ready,
-                        format!(
-                            "Warning: fixed device selected — {}",
-                            device_label(device)
-                        ),
+                        format!("Warning: fixed device selected — {}", device_label(device)),
                     );
                 }
             }
@@ -228,10 +235,7 @@ impl App {
                 Operation::Flash => "flash",
                 Operation::Clone => "clone",
             };
-            let device = self
-                .selected_device()
-                .map(device_path)
-                .unwrap_or_default();
+            let device = self.selected_device().map(device_path).unwrap_or_default();
             let image = self.image_file.clone();
 
             if device.is_empty() || image.is_empty() {
@@ -262,10 +266,7 @@ impl App {
                         eprintln!("{e}\nTerminal could not be restored. Run litho-tui again.");
                         std::process::exit(1);
                     }
-                    self.set_status(
-                        StatusState::Error,
-                        format!("Elevation failed: {e}"),
-                    );
+                    self.set_status(StatusState::Error, format!("Elevation failed: {e}"));
                 }
             }
         }
@@ -312,10 +313,7 @@ impl App {
             return;
         }
 
-        let device_path = self
-            .selected_device()
-            .map(device_path)
-            .unwrap_or_default();
+        let device_path = self.selected_device().map(device_path).unwrap_or_default();
         if device_path.is_empty() {
             self.set_status(
                 StatusState::Error,
@@ -339,10 +337,7 @@ impl App {
         self.auto_start_pending = false;
         self.set_status(
             StatusState::InProgress,
-            format!(
-                "{} to {}... (simulation — disk writes disabled)",
-                verb, device_name
-            ),
+            format!("{verb} to {device_name}... (simulation — disk writes disabled)"),
         );
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -351,43 +346,27 @@ impl App {
         let (tx, rx) = mpsc::channel();
         self.progress_rx = rx;
 
+        let image_path = self.image_file.clone();
+        let op = self.operation;
+
         info!(
-            "Starting simulated {} to {} ({})",
-            match self.operation {
+            "Starting {} to {} (image={})",
+            match op {
                 Operation::Flash => "flash",
                 Operation::Clone => "clone",
             },
             device_path,
-            device_name
+            image_path
         );
 
-        tokio::spawn(async move {
-            let mut progress = 0.0f64;
-            while progress < 100.0 {
-                if cancel.load(Ordering::Relaxed) {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(180)).await;
-                progress = (progress + 8.0 + (progress as u64 % 5) as f64).min(100.0);
-                let _ = tx.send(
-                    OperationProgress::new(OperationPhase::Writing).with_percentage(progress),
-                );
-            }
-            if cancel.load(Ordering::Relaxed) {
-                return;
-            }
-            let _ = tx.send(
-                OperationProgress::new(OperationPhase::Complete)
-                    .with_percentage(100.0)
-                    .with_message("Simulation complete".to_string()),
-            );
-        });
+        spawn_operation(op, device_path, image_path, cancel, tx);
     }
 
     pub fn cancel_operation(&mut self) {
         self.operation_cancel.store(true, Ordering::Relaxed);
         self.is_running = false;
         self.progress = 0.0;
+        info!("Simulated operation cancel requested");
         self.set_status(
             StatusState::Cancelled,
             String::from("Operation cancelled by user."),
@@ -409,7 +388,7 @@ impl App {
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    if self.is_running {
+                    if self.is_running && !self.operation_cancel.load(Ordering::Relaxed) {
                         self.is_running = false;
                         self.set_status(
                             StatusState::Error,
@@ -457,7 +436,7 @@ impl App {
                 };
                 self.set_status(
                     StatusState::Complete,
-                    format!("Successfully {} {} (simulation)", verb, device_name),
+                    format!("Successfully {verb} {device_name} (simulation)"),
                 );
             }
             OperationPhase::Failed => {
@@ -505,10 +484,7 @@ impl App {
                         } else {
                             self.image_file = current.path().to_string_lossy().to_string();
                             let name = file_basename(&self.image_file);
-                            self.set_status(
-                                StatusState::Ready,
-                                format!("Selected: {}", name),
-                            );
+                            self.set_status(StatusState::Ready, format!("Selected: {}", name));
                             break;
                         }
                         continue;
@@ -662,20 +638,18 @@ impl App {
 fn default_clone_filename(app: &App) -> String {
     let device = app
         .selected_device()
-        .map(|d| Path::new(&d.device_name)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("disk"))
+        .map(|d| {
+            Path::new(&d.device_name)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("disk")
+        })
         .unwrap_or("disk");
     format!("{}-clone.img", device)
 }
 
 fn is_valid_filename(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains('/')
-        && !name.contains('\\')
+    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\\')
 }
 
 fn join_output_path(directory: &Path, filename: &str) -> String {
@@ -688,10 +662,7 @@ fn phase_detail(progress: &OperationProgress) -> String {
         OperationPhase::Decompressing => "Decompressing image...".to_string(),
         OperationPhase::Writing => {
             if let Some(total) = progress.bytes_total {
-                format!(
-                    "Writing... {} / {} bytes",
-                    progress.bytes_processed, total
-                )
+                format!("Writing... {} / {} bytes", progress.bytes_processed, total)
             } else {
                 format!("Writing... {} bytes", progress.bytes_processed)
             }
@@ -801,17 +772,24 @@ fn restore_terminal(terminal: &mut TuiTerminal) -> io::Result<()> {
 }
 
 pub async fn run_tui(launch: LaunchParams) -> Result<(), io::Error> {
-    info!(
-        "Starting TUI (root={}, auto_start={}, mode={:?}, device={:?})",
-        is_running_as_root(),
-        launch.start,
-        launch.mode,
-        launch.device,
-    );
-
     let mut terminal = init_terminal()?;
+    let term_size = terminal.size()?;
+    let log_mode = launch.mode.clone();
+    let log_device = launch.device.clone();
+    let log_image = launch.image.clone();
+    let log_start = launch.start;
 
     let mut app = App::new(launch);
+    info!(
+        "TUI session: euid={}, root={}, polkit={}, terminal={}x{}, devices={}, \
+         launch={{ mode={log_mode:?}, device={log_device:?}, image={log_image:?}, start={log_start} }}",
+        unsafe { libc::geteuid() },
+        app.is_root,
+        app.polkit_available,
+        term_size.width,
+        term_size.height,
+        app.devices.len(),
+    );
     if app.auto_start_pending {
         app.start_operation();
     }
@@ -833,6 +811,19 @@ pub async fn run_tui(launch: LaunchParams) -> Result<(), io::Error> {
 
 pub async fn run_app(terminal: &mut TuiTerminal, app: &mut App) -> io::Result<()> {
     loop {
+        let size = terminal.size()?;
+        let area = Rect::new(0, 0, size.width, size.height);
+        if terminal_too_small(area) && !app.terminal_warn_logged {
+            log::warn!(
+                "Terminal below minimum ({}x{} < {}x{})",
+                size.width,
+                size.height,
+                MIN_COLS,
+                MIN_ROWS
+            );
+            app.terminal_warn_logged = true;
+        }
+
         terminal.draw(|f| ui(f, app))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {

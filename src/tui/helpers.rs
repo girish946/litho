@@ -14,10 +14,7 @@ const EMERALD: Color = Color::Rgb(52, 211, 153);
 const AMBER: Color = Color::Rgb(251, 191, 36);
 
 pub fn default_device_index(devices: &[DeviceInfo]) -> usize {
-    devices
-        .iter()
-        .position(|d| d.removable == 1)
-        .unwrap_or(0)
+    devices.iter().position(|d| d.removable == 1).unwrap_or(0)
 }
 
 pub fn device_path(device: &DeviceInfo) -> String {
@@ -25,13 +22,9 @@ pub fn device_path(device: &DeviceInfo) -> String {
 }
 
 pub fn device_display_name(device: &DeviceInfo) -> String {
-    let vendor_model = format!(
-        "{} {}",
-        device.vendor_name.trim(),
-        device.model_name.trim()
-    )
-    .trim()
-    .to_string();
+    let vendor_model = format!("{} {}", device.vendor_name.trim(), device.model_name.trim())
+        .trim()
+        .to_string();
     if vendor_model.is_empty() {
         device.device_name.clone()
     } else {

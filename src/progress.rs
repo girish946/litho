@@ -1,4 +1,7 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OperationPhase {
     Preparing,
     Decompressing,
@@ -8,7 +11,7 @@ pub enum OperationPhase {
     Failed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OperationProgress {
     pub phase: OperationPhase,
     pub bytes_processed: u64,
