@@ -30,6 +30,16 @@ fn get_file_content(input_file: String) -> Result<String> {
     Ok(content)
 }
 
+/// Returns device size in bytes from `/sys/block/<name>/size` (512-byte sectors).
+pub fn device_size_bytes(device_path: &str) -> Option<u64> {
+    let block_name = Path::new(device_path)
+        .file_name()
+        .and_then(|n| n.to_str())?;
+    let size_path = format!("/sys/block/{}/size", block_name);
+    let sectors: u64 = fs::read_to_string(&size_path).ok()?.trim().parse().ok()?;
+    Some(sectors.saturating_mul(512))
+}
+
 pub fn is_removable_device(device_path: &str) -> Result<bool> {
     // Extract device name from the device path
     let device_name = Path::new(device_path)

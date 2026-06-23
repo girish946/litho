@@ -1,115 +1,302 @@
 # Litho
 
-A simple and lightweight library and CLI tool to write images to block devices.
+A Rust library and CLI for flashing disk images to block devices and cloning block devices to image files. Includes an interactive terminal UI (`litho-tui`) for guided flash and clone operations on Linux.
 
-## TUI
+**Primary platform:** Linux (full CLI, library, and TUI support). macOS and Windows platform layers exist but device enumeration and end-to-end workflows are not complete — see [Platform support](#platform-support).
 
-An interactive terminal UI is available via the `litho-tui` binary:
+## Features
+
+- **Flash** — write a raw image (`.img`, `.iso`, or `.img.xz`) to a block device with optional SHA-256 verification
+- **Clone** — read an entire block device into an image file
+- **Query** — list storage devices from `/sys/block` (Linux)
+- **Progress API** — structured `OperationProgress` callbacks (phase, bytes, percentage, message)
+- **TUI** — responsive terminal UI with device/file pickers, privilege elevation via `pkexec`, and file logging
+
+## Requirements
+
+- Linux for production use (flash/clone require root)
+- Rust 1.70+ (2021 edition)
+- For `litho-tui` privilege elevation: `pkexec` (polkit) and a running polkit authentication agent
+- Terminal at least **60×24** characters for the TUI
+
+## Building
+
+```bash
+cargo build --release
+```
+
+Binaries:
+
+| Binary | Path |
+|--------|------|
+| CLI | `target/release/litho` |
+| TUI | `target/release/litho-tui` |
+
+Run from the project directory:
+
+```bash
+cargo run --bin litho -- --help
+cargo run --bin litho-tui
+```
+
+## `litho` CLI
+
+Flash and clone require **root** (e.g. `sudo`). Set log verbosity with `RUST_LOG`:
+
+```bash
+RUST_LOG=info sudo litho flash --file image.img --device /dev/sdX
+```
+
+### Flash
+
+Write an image file to a block device. `.xz` images are decompressed on the fly.
+
+```bash
+sudo litho flash --file /path/to/image.img --device /dev/sdX
+sudo litho flash -f image.img.xz -d /dev/sdX -b 4096
+sudo litho flash -f image.img -d /dev/sdX -s true   # suppress progress logs
+```
+
+| Option | Description |
+|--------|-------------|
+| `-f, --file` | Image file to write (required) |
+| `-d, --device` | Target block device (required) |
+| `-b, --block-size` | I/O buffer size in bytes (default: `4096`) |
+| `-s, --silent` | Suppress progress output (`true` / `false`, default: `false`) |
+
+### Clone
+
+Read a block device into an image file. **Argument order:** `--device` first in the API; the CLI accepts both flags in any order.
+
+```bash
+sudo litho clone --device /dev/sdX --file /path/to/backup.img
+sudo litho clone -d /dev/sdX -f backup.img -b 1048576
+```
+
+| Option | Description |
+|--------|-------------|
+| `-d, --device` | Source block device (required) |
+| `-f, --file` | Output image file (required) |
+| `-b, --block-size` | I/O buffer size in bytes (default: `4096`) |
+| `-s, --silent` | Suppress progress output |
+
+### Query
+
+List detected block devices (JSON per line via logging):
+
+```bash
+RUST_LOG=info litho query
+RUST_LOG=info litho query --device /dev/sdb
+```
+
+## `litho-tui` (interactive)
 
 ```bash
 cargo run --bin litho-tui
+# or
+./target/release/litho-tui
 ```
 
 [![TUI demo](demo.gif)](demo.cast)
 
-Play the full recording locally:
+Replay the full terminal recording:
 
 ```bash
 asciinema play demo.cast
 ```
 
-To regenerate the preview GIF after re-recording:
+Regenerate the preview GIF after re-recording:
 
 ```bash
 agg demo.cast demo.gif
 ```
 
-## Command usage
-
-- Cloning a device to an image file:
+### Launch options
 
 ```bash
-litho clone --help
-Usage: litho clone [OPTIONS] --file <FILE> --device <DEVICE>
-
-Options:
-  -f, --file <FILE>              file to which device should be cloned
-  -d, --device <DEVICE>          device
-  -b, --block-size <BLOCK_SIZE>  block size
-  -s, --silent <SILENT>          message to be published [possible values: true, false]
-  -h, --help                     Print help
+litho-tui --help
 ```
 
-- Flashing an image file to a device:
+| Option | Description |
+|--------|-------------|
+| `-m, --mode` | `flash` or `clone` (also accepts `backup` as alias for clone) |
+| `-d, --device` | Pre-select block device (e.g. `/dev/sdb`) |
+| `-i, --image` / `-f, --file` | Pre-fill image path (flash source or clone output) |
+| `--start` | Start the operation immediately when already privileged (see below) |
+| `--log-file` | Log file path (default: `~/.cache/litho/litho-tui.log`) |
+| `--log-level` | `error`, `warn`, `info`, `debug`, `trace` (default: `info`) |
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Move focus between sections |
+| `1` / `←` | Flash mode |
+| `2` / `→` | Clone mode |
+| `d` / `Enter` (device focused) | Open device picker |
+| `r` (device focused) | Refresh device list |
+| `f` / `Enter` (file focused) | Open file picker |
+| `Enter` (start focused) | Start operation |
+| `c` / `Esc` (while running) | Cancel operation |
+| `q` | Quit |
+
+### Privilege elevation
+
+Flash and clone require root. When an unprivileged user starts an operation:
+
+1. A confirmation dialog appears in the TUI.
+2. On confirm, the terminal is restored and the process **`exec`s into `pkexec`** with pre-filled `--mode`, `--device`, and `--image` only.
+3. **`--start` is never passed by pkexec** — after elevation you must press **Start** again (or pass `--start` yourself when already root).
+4. On success, the elevated session shows **Privileged** in the footer.
+
+Run directly as root to skip elevation:
 
 ```bash
-litho flash --help
-Usage: litho flash [OPTIONS] --file <FILE> --device <DEVICE>
-
-Options:
-  -f, --file <FILE>              file to be written to the device
-  -d, --device <DEVICE>          device
-  -b, --block-size <BLOCK_SIZE>  block size
-  -s, --silent <SILENT>          message to be published [possible values: true, false]
-  -h, --help                     Print help
+sudo litho-tui --mode flash --device /dev/sdb --image ./image.img --start
 ```
+
+### TUI logging
+
+Operational logs are written to a file so the TUI screen stays clean. Default path:
+
+```
+~/.cache/litho/litho-tui.log
+```
+
+(`$XDG_CACHE_HOME/litho/litho-tui.log` when set.)
+
+Terminal initialization failures and elevation errors are recorded there. Example:
+
+```bash
+litho-tui --log-level debug --log-file /tmp/litho-tui.log
+```
+
+### TUI simulation mode
+
+The TUI currently runs a **simulated** progress loop for flash/clone (no real disk I/O). Use the `litho` CLI or the library API for actual operations. The status line indicates simulation explicitly.
+
+### Device list notes
+
+- Devices are discovered via `/sys/block` on Linux.
+- NVMe drives often lack a separate `vendor` sysfs file; you may see a harmless log warning and an empty vendor field — the model string (e.g. `Samsung SSD 980 1TB`) is still shown when available.
+- Selecting a non-removable (fixed) disk triggers an extra confirmation dialog.
+
+## Library API
+
+Add the crate to your project (package name `liblitho`):
+
+```toml
+[dependencies]
+liblitho = { path = "../litho" }
+log = "0.4"
+```
+
+### Clone
+
+```rust
+use liblitho::progress::{OperationPhase, OperationProgress};
+use liblitho::clone;
+
+fn on_progress(p: OperationProgress) {
+    if let Some(pct) = p.percentage {
+        eprintln!("{:?}: {:.1}%", p.phase, pct);
+    }
+}
+
+clone(
+    "/dev/sdb".to_string(),      // device (source)
+    "/tmp/backup.img".to_string(), // output file
+    4096,                        // block size
+    false,                       // silent
+    Some(on_progress),           // progress callback (None to disable)
+)?;
+```
+
+### Flash
+
+```rust
+use liblitho::flash;
+use liblitho::progress::OperationPhase;
+
+flash(
+    "/path/to/image.img".to_string(), // image file
+    "/dev/sdb".to_string(),           // device
+    4096,
+    false,
+    Some(|p| {
+        if p.phase == OperationPhase::Verifying {
+            println!("Verifying…");
+        }
+    }),
+)?;
+```
+
+### Progress types
+
+```rust
+use liblitho::progress::{OperationPhase, OperationProgress};
+
+// Phases: Preparing, Decompressing, Writing, Verifying, Complete, Failed
+let p = OperationProgress::new(OperationPhase::Writing)
+    .with_bytes(1024, Some(4096))
+    .with_message("Writing…");
+```
+
+### Device enumeration
+
+```rust
+use liblitho::devices::get_storage_devices;
+
+for dev in get_storage_devices()? {
+    println!("{} — {} {}", dev.device_name, dev.vendor_name, dev.model_name);
+}
+```
+
+## Platform support
+
+| Component | Linux | macOS | Windows |
+|-----------|-------|-------|---------|
+| Build `litho` CLI | ✅ | ⚠️ | ⚠️ |
+| `flash` / `clone` | ✅ (root) | ⚠️ partial I/O | ⚠️ partial I/O |
+| Device listing (`query`) | ✅ `/sys/block` | ❌ Linux-only code path | ❌ |
+| `litho-tui` | ✅ | ❌ | ❌ |
+
+See [`../platform-support.md`](../platform-support.md) for the cross-platform roadmap.
 
 ## Building portable Linux binaries
 
-**Problem:** If you compile on a bleeding-edge Linux distribution, the resulting binary will depend on a very new glibc (you may see `GLIBC_2.43 not found` or similar on older systems like Ubuntu 22.04/24.04, Debian 12, etc.).
+**Problem:** Building on a bleeding-edge distro links against a very new glibc (`GLIBC_2.43 not found` on older Ubuntu/Debian releases).
 
-### Best option: Fully static musl build (recommended for the `litho` CLI)
+### Recommended: static musl build (`litho` CLI)
 
 ```bash
 rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl --bin litho
 ```
 
-The binary will be at:
-`target/x86_64-unknown-linux-musl/release/litho`
+Output: `target/x86_64-unknown-linux-musl/release/litho`
 
-This is almost completely static and runs on virtually any x86_64 Linux.
+Vendored OpenSSL in `Cargo.toml` helps musl builds succeed. Copy the binary to `lithographer/src-tauri/resources/litho` before building the Lithographer GUI.
 
-Copy it to `lithographer/src-tauri/resources/litho` before building the GUI.
-
-(The vendored OpenSSL in this `Cargo.toml` makes musl builds much easier.)
-
-### Good alternative: Build inside an older container
+### Alternative: older glibc via container
 
 ```bash
 docker run --rm -v "$PWD":/src -w /src rust:1.80-slim-bookworm \
   cargo build --release --bin litho
 ```
 
-This will only require glibc ~2.36, which is compatible with most current distros.
+`litho-tui` depends on the terminal stack and is typically built for the host environment rather than distributed as a static portable binary.
 
-## API usage
+## Safety
 
-- Clone a device to an image file:
+- Flashing or cloning the **wrong device can destroy data**. Always verify the target device path.
+- Prefer removable media for flash targets when possible.
+- Ensure target partitions are unmounted before writing (the CLI does not unmount for you).
 
-```rust
-use litho::clone;
-let image = "/home/user/image-file.img".to_string();
-let device = "/dev/sda".to_string();
-let block_size = 4096;
+## Related projects
 
-fn callback_fn(percentage: f64) {
-    println!("{percentage}%");
-}
+- [Lithographer](https://github.com/girish946/lithographer) — Tauri GUI built on top of `litho`
 
-litho::clone(image, device, block_size as usize, false, callback);
-```
+## License
 
-- FLASH an image file to a device:
-
-```rust
-use litho::flash
-let image = "/home/user/image-file.img".to_string();
-let device = "/dev/sda".to_string();
-let block_size = 4096;
-
-fn callback_fn(percentage: f64) {
-    println!("{percentage}%");
-}
-
-litho::flash(image, device, block_size as usize, false, callback);
+MIT — see `Cargo.toml`.
