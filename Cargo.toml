@@ -10,6 +10,14 @@ keywords = ["cli", "os", "image", "clone", "flash"]
 repository = "https://github.com/girish946/litho"
 categories = ["command-line-interface", "command-line-utilities"]
 
+[features]
+# Default: simulated flash/clone in binaries — safe for dev and `cargo test`.
+default = ["simulated-io"]
+simulated-io = []
+# Real block I/O in litho + litho-tui binaries. Build with:
+#   cargo build --no-default-features --features real-io
+real-io = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]

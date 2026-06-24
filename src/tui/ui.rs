@@ -157,12 +157,46 @@ fn render_main_card(f: &mut Frame, app: &App, area: Rect, compact: bool) {
     f.render_widget(section_label(file_section_label(app.operation)), chunks[5]);
     render_file_select(f, app, chunks[6]);
 
-    render_status(f, app, chunks[7]);
+    if app.operation == Operation::Flash {
+        f.render_widget(section_label("VERIFY"), chunks[7]);
+        render_verify_option(f, app, chunks[8]);
+    }
 
-    f.render_widget(section_label("PROGRESS"), chunks[8]);
-    render_progress(f, app, chunks[9]);
+    let status_chunk = if app.operation == Operation::Flash { 9 } else { 7 };
+    let progress_label_chunk = status_chunk + 1;
+    let progress_chunk = status_chunk + 2;
+    let controls_chunk = status_chunk + 3;
 
-    render_controls(f, app, chunks[10]);
+    render_status(f, app, chunks[status_chunk]);
+
+    f.render_widget(section_label("PROGRESS"), chunks[progress_label_chunk]);
+    render_progress(f, app, chunks[progress_chunk]);
+
+    render_controls(f, app, chunks[controls_chunk]);
+}
+
+fn render_verify_option(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == InputFocus::Verify;
+    let border = if focused { CYAN } else { BORDER };
+    let marker = if app.verify_checksum { "[x]" } else { "[ ]" };
+    let label = format!("{marker} Verify checksum after write");
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(CARD_BG));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(label).style(Style::default().fg(if app.is_running {
+            MUTED
+        } else {
+            Color::White
+        })),
+        inner,
+    );
 }
 
 fn render_mode_cards(f: &mut Frame, app: &App, area: Rect) {

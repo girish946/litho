@@ -4,6 +4,7 @@ use crate::tui::helpers::{
 use crate::tui::launch::{launch_prefilled, LaunchParams};
 use crate::tui::layout::{terminal_too_small, MIN_COLS, MIN_ROWS};
 use crate::tui::operation::spawn_operation;
+use liblitho::io_backend::{complete_suffix, in_progress_suffix};
 use crate::tui::privilege::{is_running_as_root, polkit_agent_available, relaunch_elevated};
 use crate::tui::ui::{
     render_device_picker_dialog, render_file_picker_hint, render_output_filename_dialog, ui,
@@ -40,6 +41,7 @@ pub enum InputFocus {
     Mode,
     Device,
     File,
+    Verify,
     Start,
     Cancel,
 }
@@ -77,6 +79,8 @@ pub struct App {
     pub polkit_available: bool,
     pub auto_start_pending: bool,
     pub terminal_warn_logged: bool,
+    /// When true, flash operations read the device back and compare checksums.
+    pub verify_checksum: bool,
 }
 
 impl App {
@@ -128,6 +132,7 @@ impl App {
             polkit_available,
             auto_start_pending,
             terminal_warn_logged: false,
+            verify_checksum: false,
         }
     }
 
@@ -145,7 +150,8 @@ impl App {
             self.focus = match self.focus {
                 InputFocus::Mode => InputFocus::Device,
                 InputFocus::Device => InputFocus::File,
-                InputFocus::File => InputFocus::Start,
+                InputFocus::File => self.next_after_file(),
+                InputFocus::Verify => InputFocus::Start,
                 InputFocus::Start => InputFocus::Cancel,
                 InputFocus::Cancel => InputFocus::Mode,
             };
@@ -153,7 +159,8 @@ impl App {
             self.focus = match self.focus {
                 InputFocus::Mode => InputFocus::Device,
                 InputFocus::Device => InputFocus::File,
-                InputFocus::File => InputFocus::Start,
+                InputFocus::File => self.next_after_file(),
+                InputFocus::Verify => InputFocus::Start,
                 InputFocus::Start => InputFocus::Mode,
                 InputFocus::Cancel => InputFocus::Mode,
             };
@@ -166,7 +173,8 @@ impl App {
                 InputFocus::Mode => InputFocus::Cancel,
                 InputFocus::Device => InputFocus::Mode,
                 InputFocus::File => InputFocus::Device,
-                InputFocus::Start => InputFocus::File,
+                InputFocus::Verify => InputFocus::File,
+                InputFocus::Start => self.prev_before_start(),
                 InputFocus::Cancel => InputFocus::Start,
             };
         } else {
@@ -174,14 +182,40 @@ impl App {
                 InputFocus::Mode => InputFocus::Start,
                 InputFocus::Device => InputFocus::Mode,
                 InputFocus::File => InputFocus::Device,
-                InputFocus::Start => InputFocus::File,
+                InputFocus::Verify => InputFocus::File,
+                InputFocus::Start => self.prev_before_start(),
                 InputFocus::Cancel => InputFocus::Start,
             };
         }
     }
 
+    fn next_after_file(&self) -> InputFocus {
+        if self.operation == Operation::Flash {
+            InputFocus::Verify
+        } else {
+            InputFocus::Start
+        }
+    }
+
+    fn prev_before_start(&self) -> InputFocus {
+        if self.operation == Operation::Flash {
+            InputFocus::Verify
+        } else {
+            InputFocus::File
+        }
+    }
+
     pub fn set_operation(&mut self, op: Operation) {
         self.operation = op;
+        if op == Operation::Clone && self.focus == InputFocus::Verify {
+            self.focus = InputFocus::File;
+        }
+    }
+
+    pub fn toggle_verify_checksum(&mut self) {
+        if self.operation == Operation::Flash && !self.is_running {
+            self.verify_checksum = !self.verify_checksum;
+        }
     }
 
     pub fn try_select_device(&mut self, index: usize) {
@@ -358,7 +392,7 @@ impl App {
         self.auto_start_pending = false;
         self.set_status(
             StatusState::InProgress,
-            format!("{verb} to {device_name}... (simulation — disk writes disabled)"),
+            format!("{verb} to {device_name}...{suffix}", suffix = in_progress_suffix()),
         );
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -370,24 +404,31 @@ impl App {
         let image_path = self.image_file.clone();
         let op = self.operation;
 
+        let block_size = self
+            .selected_device()
+            .map(|d| liblitho::devices::optimal_io_block_size_from_sectors(d.size))
+            .unwrap_or_else(|| liblitho::devices::optimal_io_block_size(&device_path));
+
         info!(
-            "Starting {} to {} (image={})",
+            "Starting {} to {} (image={}, block_size={})",
             match op {
                 Operation::Flash => "flash",
                 Operation::Clone => "clone",
             },
             device_path,
-            image_path
+            image_path,
+            block_size
         );
 
-        spawn_operation(op, device_path, image_path, cancel, tx);
+        let verify = self.operation == Operation::Flash && self.verify_checksum;
+        spawn_operation(op, device_path, image_path, block_size, verify, cancel, tx);
     }
 
     pub fn cancel_operation(&mut self) {
         self.operation_cancel.store(true, Ordering::Relaxed);
         self.is_running = false;
         self.progress = 0.0;
-        info!("Simulated operation cancel requested");
+        info!("Operation cancel requested");
         self.set_status(
             StatusState::Cancelled,
             String::from("Operation cancelled by user."),
@@ -457,7 +498,7 @@ impl App {
                 };
                 self.set_status(
                     StatusState::Complete,
-                    format!("Successfully {verb} {device_name} (simulation)"),
+                    format!("Successfully {verb} {device_name}{suffix}", suffix = complete_suffix()),
                 );
             }
             OperationPhase::Failed => {
@@ -912,10 +953,16 @@ pub async fn run_app(terminal: &mut TuiTerminal, app: &mut App) -> io::Result<()
                         KeyCode::Char('f') if app.focus == InputFocus::File => {
                             app.open_file_picker(terminal)?;
                         }
+                        KeyCode::Char(' ') | KeyCode::Enter
+                            if app.focus == InputFocus::Verify && !app.is_running =>
+                        {
+                            app.toggle_verify_checksum();
+                        }
                         KeyCode::Enter => match app.focus {
                             InputFocus::Mode => {}
                             InputFocus::Device => app.open_device_picker(terminal)?,
                             InputFocus::File => app.open_file_picker(terminal)?,
+                            InputFocus::Verify => {}
                             InputFocus::Start if !app.is_running => app.start_operation(),
                             InputFocus::Cancel if app.is_running => app.cancel_operation(),
                             _ => {}

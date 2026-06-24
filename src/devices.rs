@@ -364,6 +364,21 @@ mod validation_tests {
     }
 
     #[test]
+    fn optimal_io_block_size_from_sectors_matches_lithographer_table() {
+        assert_eq!(optimal_io_block_size_from_sectors(2_048), 4_096);
+        assert_eq!(optimal_io_block_size_from_sectors(4_096), 4_096);
+        assert_eq!(optimal_io_block_size_from_sectors(5_000), 8_192);
+        assert_eq!(optimal_io_block_size_from_sectors(100_000), 131_072);
+        assert_eq!(optimal_io_block_size_from_sectors(2_097_152), 2_097_152);
+    }
+
+    #[test]
+    fn optimal_io_block_size_from_sectors_clamps_large_disks() {
+        assert_eq!(optimal_io_block_size_from_sectors(100_000_000), 33_554_432);
+        assert_eq!(optimal_io_block_size_from_sectors(500), 4_096);
+    }
+
+    #[test]
     fn whole_disk_path_strips_partitions() {
         assert_eq!(whole_disk_path("/dev/sdb1").unwrap(), "/dev/sdb");
         assert_eq!(whole_disk_path("/dev/nvme0n1p2").unwrap(), "/dev/nvme0n1");
@@ -414,14 +429,59 @@ mod validation_tests {
     }
 }
 
-/// Returns device size in bytes from `/sys/block/<name>/size` (512-byte sectors).
-pub fn device_size_bytes(device_path: &str) -> Option<u64> {
+/// I/O buffer sizes (bytes) used by Lithographer legacy logic — pick based on device capacity.
+const IO_BLOCK_SIZES: [usize; 14] = [
+    4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608,
+    16777216, 33554432,
+];
+
+const DEFAULT_IO_BLOCK_SIZE: usize = IO_BLOCK_SIZES[0];
+
+/// Pick I/O buffer size from device capacity (`DeviceInfo.size` — 512-byte sectors).
+///
+/// Matches the historical Lithographer `execute` logic: find the smallest table entry
+/// that is >= `size_sectors`, clamped to the table range.
+pub fn optimal_io_block_size_from_sectors(size_sectors: u64) -> usize {
+    if size_sectors > IO_BLOCK_SIZES[13] as u64 {
+        return IO_BLOCK_SIZES[13];
+    }
+    if size_sectors < IO_BLOCK_SIZES[0] as u64 {
+        return IO_BLOCK_SIZES[0];
+    }
+
+    for &block in &IO_BLOCK_SIZES {
+        if size_sectors <= block as u64 {
+            return block;
+        }
+    }
+
+    IO_BLOCK_SIZES[13]
+}
+
+/// Resolve block size for a device path via sysfs sector count.
+pub fn optimal_io_block_size(device_path: &str) -> usize {
+    device_size_sectors(device_path)
+        .map(optimal_io_block_size_from_sectors)
+        .unwrap_or(DEFAULT_IO_BLOCK_SIZE)
+}
+
+/// Returns device size in 512-byte sectors from `/sys/block/<name>/size`.
+pub fn device_size_sectors(device_path: &str) -> Option<u64> {
     let block_name = Path::new(device_path)
         .file_name()
         .and_then(|n| n.to_str())?;
-    let size_path = format!("/sys/block/{}/size", block_name);
-    let sectors: u64 = fs::read_to_string(&size_path).ok()?.trim().parse().ok()?;
-    Some(sectors.saturating_mul(512))
+    let size_path = format!("/sys/block/{block_name}/size");
+    fs::read_to_string(size_path)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Returns device size in bytes from `/sys/block/<name>/size` (512-byte sectors).
+pub fn device_size_bytes(device_path: &str) -> Option<u64> {
+    device_size_sectors(device_path)
+        .map(|sectors| sectors.saturating_mul(512))
 }
 
 pub fn is_removable_device(device_path: &str) -> Result<bool> {

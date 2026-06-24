@@ -1,5 +1,5 @@
 use anyhow::Result;
-use liblitho::progress::{OperationPhase, OperationProgress};
+use crate::progress::{OperationPhase, OperationProgress};
 use std::thread;
 use std::time::Duration;
 
@@ -12,6 +12,7 @@ pub fn simulate_flash<F>(
     device: &str,
     block_size: usize,
     silent: bool,
+    verify: bool,
     mut progress: Option<F>,
 ) -> Result<()>
 where
@@ -28,7 +29,11 @@ where
 
     for step in 1..=SIMULATED_STEPS {
         let bytes = SIMULATED_TOTAL_BYTES * step / SIMULATED_STEPS;
-        let pct = (bytes as f64 / SIMULATED_TOTAL_BYTES as f64) * 90.0;
+        let pct = if verify {
+            (bytes as f64 / SIMULATED_TOTAL_BYTES as f64) * 90.0
+        } else {
+            (bytes as f64 / SIMULATED_TOTAL_BYTES as f64) * 100.0
+        };
         emit(
             silent,
             &mut progress,
@@ -39,25 +44,27 @@ where
         thread::sleep(Duration::from_millis(40));
     }
 
-    emit(
-        silent,
-        &mut progress,
-        OperationProgress::new(OperationPhase::Verifying)
-            .with_percentage(90.0)
-            .with_message("Verifying checksum (simulated)"),
-    );
-
-    for step in 1..=5 {
-        let verified = SIMULATED_TOTAL_BYTES * step / 5;
-        let pct = 90.0 + (verified as f64 / SIMULATED_TOTAL_BYTES as f64) * 10.0;
+    if verify {
         emit(
             silent,
             &mut progress,
             OperationProgress::new(OperationPhase::Verifying)
-                .with_bytes(verified, Some(SIMULATED_TOTAL_BYTES))
-                .with_percentage(pct.min(99.9)),
+                .with_percentage(90.0)
+                .with_message("Verifying checksum (simulated)"),
         );
-        thread::sleep(Duration::from_millis(40));
+
+        for step in 1..=5 {
+            let verified = SIMULATED_TOTAL_BYTES * step / 5;
+            let pct = 90.0 + (verified as f64 / SIMULATED_TOTAL_BYTES as f64) * 10.0;
+            emit(
+                silent,
+                &mut progress,
+                OperationProgress::new(OperationPhase::Verifying)
+                    .with_bytes(verified, Some(SIMULATED_TOTAL_BYTES))
+                    .with_percentage(pct.min(99.9)),
+            );
+            thread::sleep(Duration::from_millis(40));
+        }
     }
 
     emit(
@@ -67,7 +74,7 @@ where
             .with_bytes(SIMULATED_TOTAL_BYTES, Some(SIMULATED_TOTAL_BYTES))
             .with_percentage(100.0)
             .with_message(format!(
-                "Simulated flash of {image} to {device} (block_size={block_size})"
+                "Simulated flash of {image} to {device} (block_size={block_size}, verify={verify})"
             )),
     );
 

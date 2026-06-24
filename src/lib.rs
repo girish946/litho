@@ -1,6 +1,10 @@
 pub mod devices;
+pub mod io_backend;
 pub mod platform;
 pub mod progress;
+
+#[cfg(not(feature = "real-io"))]
+pub mod cli_simulate;
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
@@ -16,17 +20,21 @@ use tempfile::NamedTempFile;
 /// Calculate the checksum of the data read from the given reader
 fn calculate_checksum<R: Read>(reader: &mut R, size: usize) -> Result<String> {
     let mut hasher = Sha256::new();
-    let mut buffer: Vec<u8> = Vec::with_capacity(size);
+    let chunk = 65536usize;
+    let mut buffer = vec![0u8; chunk];
+    let mut remaining = size;
 
-    loop {
+    while remaining > 0 {
+        let to_read = remaining.min(buffer.len());
         let bytes_read = reader
-            .read(&mut buffer)
+            .read(&mut buffer[..to_read])
             .context("Failed to read data for checksum calculation")?;
         if bytes_read == 0 {
             break;
         }
         debug!("Reading data for checksum calculation");
         hasher.update(&buffer[..bytes_read]);
+        remaining -= bytes_read;
     }
 
     Ok(format!("{:x}", hasher.finalize()))
@@ -108,12 +116,16 @@ where
     Ok(())
 }
 
-/// Flash the image at the given path to the device at the given path
+/// Flash the image at the given path to the device at the given path.
+///
+/// When `verify` is false (default), the image is written and the operation
+/// completes without a post-write checksum pass.
 pub fn flash<F>(
     img_path: String,
     device_path: String,
     block_size: usize,
     silent: bool,
+    verify: bool,
     progress: Option<F>,
 ) -> Result<()>
 where
@@ -121,9 +133,24 @@ where
 {
     if img_path.ends_with(".xz") {
         info!("Detected compressed image, calling flash_xz");
-        flash_xz(img_path, device_path, block_size, silent, progress)
+        flash_xz(
+            img_path,
+            device_path,
+            block_size,
+            silent,
+            verify,
+            progress,
+        )
     } else {
-        flash_image(img_path, device_path, block_size, silent, progress, false)
+        flash_image(
+            img_path,
+            device_path,
+            block_size,
+            silent,
+            progress,
+            false,
+            verify,
+        )
     }
 }
 
@@ -134,6 +161,7 @@ fn flash_image<F>(
     silent: bool,
     mut progress: Option<F>,
     skip_prepare: bool,
+    verify: bool,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -154,12 +182,16 @@ where
         .context("Failed to read image file metadata")?
         .len();
     let file_size_usize = usize::try_from(file_size).context("File size too large")?;
-    let img_checksum = calculate_checksum(&mut img_file, file_size_usize)
-        .context("Failed to calculate image checksum")?;
-
-    if !silent {
-        info!("Source image checksum: {}", img_checksum);
-    }
+    let img_checksum = if verify {
+        let checksum = calculate_checksum(&mut img_file, file_size_usize)
+            .context("Failed to calculate image checksum")?;
+        if !silent {
+            info!("Source image checksum: {}", checksum);
+        }
+        Some(checksum)
+    } else {
+        None
+    };
 
     let mut device_writer = PlatformDevice::new_writer(&device_path)?;
 
@@ -182,7 +214,11 @@ where
             .write_all(&buffer[..bytes_read])
             .context("Failed to write to device")?;
         count += bytes_read as u64;
-        let write_pct = (count as f64 / file_size as f64) * 90.0;
+        let write_pct = if verify {
+            (count as f64 / file_size as f64) * 90.0
+        } else {
+            (count as f64 / file_size as f64) * 100.0
+        };
         emit_progress(
             silent,
             &mut progress,
@@ -205,6 +241,23 @@ where
         .flush_and_sync()
         .context("Failed to flush and sync device")?;
 
+    if !verify {
+        emit_progress(
+            silent,
+            &mut progress,
+            OperationProgress::new(OperationPhase::Complete)
+                .with_bytes(file_size, Some(file_size))
+                .with_percentage(100.0)
+                .with_message("Flash completed"),
+        );
+        if !silent {
+            info!("Flash completed successfully");
+        }
+        return Ok(());
+    }
+
+    let img_checksum = img_checksum.context("Missing source checksum")?;
+
     emit_progress(
         silent,
         &mut progress,
@@ -213,10 +266,11 @@ where
             .with_message("Verifying checksum"),
     );
 
-    let mut device_reader = PlatformDevice::new_reader(&device_path)?;
+    let device_reader = PlatformDevice::new_verify_reader(&device_path)?;
+    let mut buffered_reader = BufReader::with_capacity(1024 * 1024, device_reader);
     let mut verified: u64 = 0;
     let verify_hasher = verify_checksum_with_progress(
-        &mut device_reader,
+        &mut buffered_reader,
         file_size_usize,
         silent,
         &mut progress,
@@ -271,8 +325,19 @@ where
         let to_read = remaining.min(buffer.len());
         let bytes_read = reader
             .read(&mut buffer[..to_read])
-            .context("Failed to read from device during verification")?;
+            .with_context(|| {
+                format!(
+                    "Failed to read from device during verification ({} bytes remaining)",
+                    remaining
+                )
+            })?;
         if bytes_read == 0 {
+            if remaining > 0 {
+                anyhow::bail!(
+                    "Unexpected end of device read during verification ({} bytes short)",
+                    remaining
+                );
+            }
             break;
         }
         hasher.update(&buffer[..bytes_read]);
@@ -297,6 +362,7 @@ pub fn flash_xz<F>(
     device_path: String,
     block_size: usize,
     silent: bool,
+    verify: bool,
     mut progress: Option<F>,
 ) -> Result<()>
 where
@@ -325,6 +391,7 @@ where
         silent,
         progress,
         true,
+        verify,
     );
 
     debug!("Deleting temporary file");

@@ -57,6 +57,26 @@ impl PlatformDevice {
         }
     }
 
+    /// Open a device for post-write checksum verification (buffered/cached reads).
+    pub fn new_verify_reader(device_path: &str) -> Result<Box<dyn DeviceReader>> {
+        #[cfg(target_os = "linux")]
+        {
+            Ok(Box::new(linux::LinuxBufferedDeviceReader::open(device_path)?))
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Ok(Box::new(macos::MacDeviceReader::open(device_path)?))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Ok(Box::new(windows::WindowsDeviceReader::open(device_path)?))
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            anyhow::bail!("Unsupported platform")
+        }
+    }
+
     /// Create a new platform-specific device writer
     pub fn new_writer(device_path: &str) -> Result<Box<dyn DeviceWriter>> {
         #[cfg(target_os = "linux")]

@@ -76,7 +76,7 @@ Global option (all subcommands):
 - **`terminal`** — in-place `=` / `-` progress bar when stdout is a TTY; newline updates when piped.
 - **`gui`** — one structured line per event for GUI hosts. Progress on stdout (`@progress …`), errors on stderr (`@error …`), completion `@done ok`.
 
-> **Note:** `flash` and `clone` are **simulated** in the CLI for now (no real block I/O). Use the library or `litho-tui` for real operations until wiring is complete.
+> **I/O mode:** By default, `litho` and `litho-tui` use **simulated** flash/clone (no block writes) — safe for development and `cargo test`. For real disk I/O, build with `--no-default-features --features real-io` (Lithographer release builds do this for the bundled sidecar).
 
 ### Clone
 
@@ -192,9 +192,23 @@ Terminal initialization failures and elevation errors are recorded there. Exampl
 litho-tui --log-level debug --log-file /tmp/litho-tui.log
 ```
 
-### Simulation mode
+### I/O features (`simulated-io` vs `real-io`)
 
-The TUI runs a **simulated** progress loop for flash/clone — it does **not** call `liblitho::flash` or `clone`. Use the `litho` CLI or library API for real disk I/O. The status line indicates simulation explicitly.
+| Feature | Default | Behavior |
+|---------|---------|----------|
+| `simulated-io` | yes | `cli_simulate` / TUI simulator — no block writes |
+| `real-io` | no | Calls `liblitho::flash` / `clone` (requires `--no-default-features`) |
+
+```bash
+# Development / tests (default)
+cargo build
+cargo test
+
+# Release binary with real block I/O
+cargo build --release --no-default-features --features real-io --bin litho
+```
+
+The TUI status line appends `(simulation — disk writes disabled)` when `simulated-io` is active.
 
 ### Device list notes
 

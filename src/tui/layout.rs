@@ -96,7 +96,7 @@ pub fn compute_layout(area: Rect) -> UiLayout {
     }
 }
 
-pub fn main_card_constraints(compact: bool) -> [Constraint; 11] {
+pub fn main_card_constraints(compact: bool) -> [Constraint; 13] {
     if compact {
         [
             Constraint::Length(1),
@@ -106,6 +106,8 @@ pub fn main_card_constraints(compact: bool) -> [Constraint; 11] {
             Constraint::Length(2),
             Constraint::Length(1),
             Constraint::Length(4),
+            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Length(4),
             Constraint::Length(1),
             Constraint::Length(2),
@@ -120,6 +122,8 @@ pub fn main_card_constraints(compact: bool) -> [Constraint; 11] {
             Constraint::Length(3),
             Constraint::Length(1),
             Constraint::Length(5),
+            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Length(5),
             Constraint::Length(1),
             Constraint::Length(3),
