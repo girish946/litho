@@ -41,10 +41,10 @@ cargo run --bin litho-tui
 
 ## `litho` CLI
 
-Flash and clone require **root** (e.g. `sudo`). Set log verbosity with `RUST_LOG`:
+Flash and clone require **root** (e.g. `sudo`). The `litho` CLI uses `println!` / `eprintln!` for user-facing output (no `env_logger`).
 
 ```bash
-RUST_LOG=info sudo litho flash --file image.img --device /dev/sdX
+sudo litho flash --file image.img --device /dev/sdX
 ```
 
 ### Flash
@@ -54,7 +54,8 @@ Write an image file to a block device. `.xz` images are decompressed on the fly.
 ```bash
 sudo litho flash --file /path/to/image.img --device /dev/sdX
 sudo litho flash -f image.img.xz -d /dev/sdX -b 4096
-sudo litho flash -f image.img -d /dev/sdX -s true   # suppress progress logs
+sudo litho flash -f image.img -d /dev/sdX --silent   # suppress progress output
+sudo litho flash -f image.img -d /dev/sdX -o gui     # GUI line protocol (for Lithographer)
 ```
 
 | Option | Description |
@@ -62,13 +63,20 @@ sudo litho flash -f image.img -d /dev/sdX -s true   # suppress progress logs
 | `-f, --file` | Image file to write (required) |
 | `-d, --device` | Target block device (required) |
 | `-b, --block-size` | I/O buffer size in bytes (default: `4096`) |
-| `-s, --silent` | Suppress progress output (`true` / `false`, default: `false`) |
+| `-s, --silent` | Suppress progress output (default: `false`) |
 
 Global option (all subcommands):
 
 | Option | Description |
 |--------|-------------|
-| `--json-progress` | Emit one JSON line per `OperationProgress` event on stdout |
+| `-o, --output-mode` | `terminal` (default) or `gui` |
+
+**Output modes**
+
+- **`terminal`** — in-place `=` / `-` progress bar when stdout is a TTY; newline updates when piped.
+- **`gui`** — one structured line per event for GUI hosts. Progress on stdout (`@progress …`), errors on stderr (`@error …`), completion `@done ok`.
+
+> **Note:** `flash` and `clone` are **simulated** in the CLI for now (no real block I/O). Use the library or `litho-tui` for real operations until wiring is complete.
 
 ### Clone
 

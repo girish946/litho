@@ -82,8 +82,8 @@ mod tests {
         let total_sectors = 1_000_000u64;
         let bytes_done = total_sectors * 256; // half of 512-byte sectors
         let total_bytes = total_sectors * 512;
-        let p =
-            OperationProgress::new(OperationPhase::Writing).with_bytes(bytes_done, Some(total_bytes));
+        let p = OperationProgress::new(OperationPhase::Writing)
+            .with_bytes(bytes_done, Some(total_bytes));
         assert!((p.percentage.unwrap() - 50.0).abs() < f64::EPSILON);
     }
 }

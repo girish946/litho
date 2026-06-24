@@ -92,7 +92,7 @@ impl App {
         if let Some(ref wanted_device) = launch.device {
             if let Some(idx) = devices
                 .iter()
-                .position(|d| device_path(d) == *wanted_device || d.device_name == *wanted_device)
+                .position(|d| device_path(d) == *wanted_device)
             {
                 selected_device_index = idx;
             }
@@ -255,6 +255,13 @@ impl App {
                 return;
             }
 
+            let known: Vec<&str> = self.devices.iter().map(|d| d.device_name.as_str()).collect();
+            if let Err(e) = liblitho::devices::validate_listed_block_device(&device, &known) {
+                self.set_status(StatusState::Error, e);
+                self.dialog = Dialog::None;
+                return;
+            }
+
             info!(
                 "Requesting elevation via pkexec: mode={}, device={}, image={}",
                 mode, device, image
@@ -327,6 +334,12 @@ impl App {
                 StatusState::Error,
                 String::from("Select a storage device before starting."),
             );
+            return;
+        }
+
+        let known: Vec<&str> = self.devices.iter().map(|d| d.device_name.as_str()).collect();
+        if let Err(e) = liblitho::devices::validate_listed_block_device(&device_path, &known) {
+            self.set_status(StatusState::Error, e);
             return;
         }
 

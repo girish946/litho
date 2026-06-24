@@ -1,153 +1,241 @@
+mod cli_output;
+mod cli_simulate;
+
 use clap::{Parser, Subcommand};
-use liblitho::progress::OperationProgress;
-use liblitho::{clone, flash};
-use log::{error, info};
-use std::io::{self, Write};
+use cli_output::{CliOutput, OutputMode};
+use std::process::ExitCode;
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Cli {
-    /// emit one JSON object per progress event on stdout (implies --silent for log output)
-    #[arg(long, global = true)]
-    json_progress: bool,
+    /// Output style: terminal progress bar or GUI-friendly line protocol.
+    #[arg(short = 'o', long = "output-mode", value_enum, default_value_t = OutputMode::Terminal, global = true)]
+    output_mode: OutputMode,
 
-    #[clap(subcommand)]
+    /// Validate inputs and print the operation that would run, without performing I/O.
+    #[arg(long = "dry-run", global = true, default_value_t = false)]
+    dry_run: bool,
+
+    #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Read a block device into an image file (simulated for now).
     Clone {
-        /// file to which device should be cloned.
-        #[clap(short, long)]
+        /// Output image file.
+        #[arg(short, long)]
         file: String,
 
-        /// device
-        #[clap(short, long)]
+        /// Source block device.
+        #[arg(short, long)]
         device: String,
 
-        /// block size
-        #[clap(short, long)]
-        block_size: Option<usize>,
+        /// I/O buffer size in bytes.
+        #[arg(short, long, default_value_t = 4096)]
+        block_size: usize,
 
-        /// suppress progress output
-        #[clap(short, long)]
-        silent: Option<bool>,
+        /// Suppress progress output.
+        #[arg(short, long, default_value_t = false)]
+        silent: bool,
     },
+    /// Write an image file to a block device (simulated for now).
     Flash {
-        /// file to be written to the device
-        #[clap(short, long)]
+        /// Image file to write.
+        #[arg(short, long)]
         file: String,
 
-        /// device
-        #[clap(short, long)]
+        /// Target block device.
+        #[arg(short, long)]
         device: String,
 
-        /// block size
-        #[clap(short, long)]
-        block_size: Option<usize>,
+        /// I/O buffer size in bytes.
+        #[arg(short, long, default_value_t = 4096)]
+        block_size: usize,
 
-        /// suppress progress output
-        #[clap(short, long)]
-        silent: Option<bool>,
+        /// Suppress progress output.
+        #[arg(short, long, default_value_t = false)]
+        silent: bool,
     },
+    /// List storage devices or query one device.
     Query {
-        /// device
-        #[clap(short, long)]
+        /// Optional device path to query.
+        #[arg(short, long)]
         device: Option<String>,
     },
 }
 
-fn log_progress(p: OperationProgress) {
-    match (p.percentage, p.message) {
-        (Some(pct), _) => info!("{:?}: {:.1}%", p.phase, pct),
-        (None, Some(msg)) => info!("{:?}: {} ({})", p.phase, p.bytes_processed, msg),
-        (None, None) => info!("{:?}: {} bytes", p.phase, p.bytes_processed),
-    }
-}
+fn run(cli: Cli) -> ExitCode {
+    let mut out = CliOutput::new(cli.output_mode);
 
-fn json_progress_line(p: OperationProgress) {
-    match serde_json::to_string(&p) {
-        Ok(line) => {
-            let _ = writeln!(io::stdout(), "{line}");
-        }
-        Err(e) => error!("Failed to serialize progress: {e}"),
-    }
-}
-
-fn main() {
-    env_logger::init();
-    let cli = Cli::parse();
     match cli.command {
         Commands::Clone {
             file,
             device,
             block_size,
             silent,
-        } => {
-            info!(
-                "Clone command: file={}, device={}, block_size={:?}, silent={:?}",
-                file, device, block_size, silent
-            );
-            let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false) || cli.json_progress;
-
-            let progress = if cli.json_progress {
-                Some(json_progress_line as fn(OperationProgress))
-            } else if silent {
-                None
-            } else {
-                Some(log_progress as fn(OperationProgress))
-            };
-
-            match clone(device, file, blk_size, silent, progress) {
-                Ok(()) => info!("Clone operation completed successfully"),
-                Err(e) => error!("Clone operation failed: {}", e),
-            };
-        }
+        } => run_clone(&mut out, &device, &file, block_size, silent, cli.dry_run),
         Commands::Flash {
             file,
             device,
             block_size,
             silent,
-        } => {
-            info!(
-                "Flash command: file={}, device={}, block_size={:?}, silent={:?}",
-                file, device, block_size, silent
-            );
-            let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false) || cli.json_progress;
+        } => run_flash(&mut out, &file, &device, block_size, silent, cli.dry_run),
+        Commands::Query { device } => run_query(&out, device.as_deref()),
+    }
+}
 
-            let progress = if cli.json_progress {
-                Some(json_progress_line as fn(OperationProgress))
-            } else if silent {
-                None
-            } else {
-                Some(log_progress as fn(OperationProgress))
-            };
+fn run_flash(
+    out: &mut CliOutput,
+    file: &str,
+    device: &str,
+    block_size: usize,
+    silent: bool,
+    dry_run: bool,
+) -> ExitCode {
+    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+        out.error(&e);
+        return ExitCode::FAILURE;
+    }
 
-            match flash(file, device, blk_size, silent, progress) {
-                Ok(_) => info!("Flash operation completed successfully"),
-                Err(e) => error!("Flash operation failed: {}", e),
-            }
+    if dry_run {
+        out.dry_run_ok("flash", file, device, block_size);
+        return ExitCode::SUCCESS;
+    }
+
+    out.operation_start("Flashing", file, device, block_size);
+
+    let result = if silent {
+        cli_simulate::simulate_flash::<fn(liblitho::progress::OperationProgress)>(
+            file, device, block_size, true, None,
+        )
+    } else {
+        cli_simulate::simulate_flash(
+            file,
+            device,
+            block_size,
+            false,
+            Some(|event| {
+                out.on_progress(&event);
+            }),
+        )
+    };
+
+    out.finish_progress_line();
+
+    match result {
+        Ok(()) => {
+            out.done_ok("flash");
+            ExitCode::SUCCESS
         }
-        Commands::Query { device } => match device {
-            Some(device) => {
-                info!("Querying device: {}", device);
-            }
-            None => {
-                info!("Querying all storage devices");
-                match liblitho::devices::get_storage_devices() {
-                    Ok(devices) => {
-                        for device in devices {
-                            info!("{}", device);
+        Err(e) => {
+            out.error(&e.to_string());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_clone(
+    out: &mut CliOutput,
+    device: &str,
+    file: &str,
+    block_size: usize,
+    silent: bool,
+    dry_run: bool,
+) -> ExitCode {
+    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+        out.error(&e);
+        return ExitCode::FAILURE;
+    }
+
+    if dry_run {
+        out.dry_run_ok("clone", device, file, block_size);
+        return ExitCode::SUCCESS;
+    }
+
+    out.operation_start("Cloning", device, file, block_size);
+
+    let result = if silent {
+        cli_simulate::simulate_clone::<fn(liblitho::progress::OperationProgress)>(
+            device, file, block_size, true, None,
+        )
+    } else {
+        cli_simulate::simulate_clone(
+            device,
+            file,
+            block_size,
+            false,
+            Some(|event| {
+                out.on_progress(&event);
+            }),
+        )
+    };
+
+    out.finish_progress_line();
+
+    match result {
+        Ok(()) => {
+            out.done_ok("clone");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            out.error(&e.to_string());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_query(out: &CliOutput, device: Option<&str>) -> ExitCode {
+    match device {
+        Some(path) => {
+            out.query_status(&format!("Querying device: {path}"));
+            // Single-device lookup is not implemented yet; list all and let the user filter.
+            match liblitho::devices::get_storage_devices() {
+                Ok(devices) => {
+                    let mut found = false;
+                    for dev in devices {
+                        if device_path_matches(&dev.device_name, path) {
+                            out.query_device(&dev);
+                            found = true;
+                            break;
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to get storage devices: {}", e)
+                    if !found {
+                        out.error(&format!("Device not found: {path}"));
+                        return ExitCode::FAILURE;
                     }
-                };
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    out.error(&e.to_string());
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        None => match liblitho::devices::get_storage_devices() {
+            Ok(devices) => {
+                if devices.is_empty() {
+                    out.query_status("No storage devices found");
+                } else {
+                    for dev in devices {
+                        out.query_device(&dev);
+                    }
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                out.error(&e.to_string());
+                ExitCode::FAILURE
             }
         },
     }
+}
+
+fn device_path_matches(device_name: &str, query_path: &str) -> bool {
+    query_path.trim() == device_name.trim()
+}
+
+fn main() -> ExitCode {
+    run(Cli::parse())
 }
