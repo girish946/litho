@@ -40,7 +40,7 @@ pub fn ui(f: &mut Frame, app: &App) {
 
     render_header(f, app, layout.header);
     render_main_card(f, app, layout.main_card, layout.compact);
-    render_footer(f, app, layout.footer, layout.show_shortcut_hints);
+    render_footer(f, layout.footer, layout.show_shortcut_hints);
 
     match app.dialog {
         Dialog::None => {}
@@ -480,18 +480,11 @@ fn render_controls(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_footer(f: &mut Frame, app: &App, area: Rect, show_shortcut_hints: bool) {
-    let privilege_text = if app.is_root {
-        "Privileged"
-    } else {
-        "Administrator privileges required for flash/clone"
-    };
-
-    let mut spans = vec![
-        Span::styled("Made with ♥ by Girish Joshi", Style::default().fg(MUTED)),
-        Span::raw("   │   "),
-        Span::styled(privilege_text, Style::default().fg(MUTED)),
-    ];
+fn render_footer(f: &mut Frame, area: Rect, show_shortcut_hints: bool) {
+    let mut spans = vec![Span::styled(
+        "Made with ♥ by Girish Joshi",
+        Style::default().fg(MUTED),
+    )];
 
     if show_shortcut_hints {
         spans.push(Span::raw("   │   "));
