@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches:
+      - "*"
+  pull_request:
+
+jobs:
+  build-binaries:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build CLI and TUI (real-io)
+        run: |
+          cargo build --release --locked \
+            --no-default-features --features real-io \
+            --bin litho --bin litho-tui
+
+      - name: Stage release artifacts
+        run: |
+          triple="$(rustc --print host-tuple)"
+          mkdir -p dist
+          cp target/release/litho "dist/litho-${triple}"
+          cp target/release/litho-tui "dist/litho-tui-${triple}"
+          chmod +x dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: litho-binaries-linux-x86_64
+          path: dist/*
+          if-no-files-found: error
