@@ -96,40 +96,45 @@ pub fn compute_layout(area: Rect) -> UiLayout {
     }
 }
 
-pub fn main_card_constraints(compact: bool) -> [Constraint; 13] {
-    if compact {
-        [
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(4),
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(4),
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(3),
-        ]
+/// Vertical chunks inside the main card. Flash mode includes VERIFY rows; clone omits them.
+pub fn main_card_constraints(compact: bool, include_verify: bool) -> Vec<Constraint> {
+    let (
+        mode_cards,
+        device_info,
+        file_select,
+        verify_option,
+        status,
+        progress_bar,
+        controls,
+    ) = if compact {
+        (5, 2, 4, 3, 4, 2, 3)
     } else {
-        [
-            Constraint::Length(1),
-            Constraint::Length(7),
-            Constraint::Length(1),
-            Constraint::Length(4),
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(5),
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Length(4),
-        ]
+        (7, 3, 5, 3, 5, 3, 4)
+    };
+
+    let mut constraints = vec![
+        Constraint::Length(1),
+        Constraint::Length(mode_cards),
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(device_info),
+        Constraint::Length(1),
+        Constraint::Length(file_select),
+    ];
+
+    if include_verify {
+        constraints.push(Constraint::Length(1));
+        constraints.push(Constraint::Length(verify_option));
     }
+
+    constraints.extend([
+        Constraint::Length(status),
+        Constraint::Length(1),
+        Constraint::Length(progress_bar),
+        Constraint::Length(controls),
+    ]);
+
+    constraints
 }
 
 pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

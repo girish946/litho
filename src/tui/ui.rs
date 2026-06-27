@@ -1,6 +1,7 @@
 use crate::tui::app::{App, Dialog, InputFocus, Operation, StatusState};
 use crate::tui::helpers::{
-    device_label, device_list_entry, device_path, file_basename, file_section_label, format_size,
+    device_label, device_list_entry, device_path, file_basename, file_path_hint,
+    file_section_label, format_size, truncate_end,
 };
 use crate::tui::layout::{
     centered_rect, compute_layout, main_card_constraints, MIN_COLS, MIN_ROWS, PANEL_WIDTH_FULL,
@@ -140,12 +141,15 @@ fn render_main_card(f: &mut Frame, app: &App, area: Rect, compact: bool) {
         area,
     );
 
+    let include_verify = app.operation == Operation::Flash;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .spacing(1)
-        .constraints(main_card_constraints(compact))
+        .constraints(main_card_constraints(compact, include_verify))
         .split(card_area);
+
+    let n = chunks.len();
 
     f.render_widget(section_label("OPERATION MODE"), chunks[0]);
     render_mode_cards(f, app, chunks[1]);
@@ -157,22 +161,15 @@ fn render_main_card(f: &mut Frame, app: &App, area: Rect, compact: bool) {
     f.render_widget(section_label(file_section_label(app.operation)), chunks[5]);
     render_file_select(f, app, chunks[6]);
 
-    if app.operation == Operation::Flash {
+    if include_verify {
         f.render_widget(section_label("VERIFY"), chunks[7]);
         render_verify_option(f, app, chunks[8]);
     }
 
-    let status_chunk = if app.operation == Operation::Flash { 9 } else { 7 };
-    let progress_label_chunk = status_chunk + 1;
-    let progress_chunk = status_chunk + 2;
-    let controls_chunk = status_chunk + 3;
-
-    render_status(f, app, chunks[status_chunk]);
-
-    f.render_widget(section_label("PROGRESS"), chunks[progress_label_chunk]);
-    render_progress(f, app, chunks[progress_chunk]);
-
-    render_controls(f, app, chunks[controls_chunk]);
+    render_status(f, app, chunks[n - 4]);
+    f.render_widget(section_label("PROGRESS"), chunks[n - 3]);
+    render_progress(f, app, chunks[n - 2]);
+    render_controls(f, app, chunks[n - 1]);
 }
 
 fn render_verify_option(f: &mut Frame, app: &App, area: Rect) {
@@ -338,6 +335,20 @@ fn render_file_select(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == InputFocus::File;
     let border_color = if focused { ACCENT } else { BORDER };
 
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border_color))
+        .style(Style::default().bg(Color::Rgb(24, 24, 27)));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Two single-line rows inside a fixed-height box — truncate instead of wrap so
+    // long clone output paths cannot spill into sections below.
+    let max_name_chars = inner.width.saturating_sub(3) as usize;
+    let max_hint_chars = inner.width as usize;
+
     let (name, path_hint) = if app.image_file.is_empty() {
         match app.operation {
             Operation::Flash => (
@@ -350,26 +361,26 @@ fn render_file_select(f: &mut Frame, app: &App, area: Rect) {
             ),
         }
     } else {
-        (file_basename(&app.image_file), app.image_file.clone())
+        (
+            file_basename(&app.image_file),
+            file_path_hint(&app.image_file, app.operation, max_hint_chars),
+        )
     };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(Color::Rgb(24, 24, 27)));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
 
     let lines = vec![
         Line::from(vec![
             Span::styled("📄 ", Style::default().fg(ACCENT)),
-            Span::styled(name, focus_style(focused)),
+            Span::styled(
+                truncate_end(&name, max_name_chars),
+                focus_style(focused),
+            ),
         ]),
-        Line::from(Span::styled(path_hint, Style::default().fg(MUTED))),
+        Line::from(Span::styled(
+            truncate_end(&path_hint, max_hint_chars),
+            Style::default().fg(MUTED),
+        )),
     ];
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_status(f: &mut Frame, app: &App, area: Rect) {

@@ -571,6 +571,7 @@ impl App {
             file_explorer.handle(&event)?;
         }
 
+        terminal.draw(|f| ui(f, self))?;
         Ok(())
     }
 
@@ -613,6 +614,7 @@ impl App {
             file_explorer.handle(&event)?;
         }
 
+        terminal.draw(|f| ui(f, self))?;
         Ok(())
     }
 

@@ -81,10 +81,73 @@ pub fn file_basename(path: &str) -> String {
         .to_string()
 }
 
+/// Truncate long strings for fixed-width TUI rows (prefix ellipsis).
+pub fn truncate_end(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+    let tail: String = s
+        .chars()
+        .rev()
+        .take(max_chars - 1)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("…{tail}")
+}
+
+pub fn file_path_hint(path: &str, operation: Operation, max_chars: usize) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let path = Path::new(path);
+    match operation {
+        Operation::Flash => truncate_end(&path.display().to_string(), max_chars),
+        Operation::Clone => path
+            .parent()
+            .map(|parent| truncate_end(&parent.display().to_string(), max_chars))
+            .unwrap_or_default(),
+    }
+}
+
 pub fn file_section_label(operation: Operation) -> &'static str {
     match operation {
         Operation::Flash => "SOURCE FILE",
         Operation::Clone => "OUTPUT FILE",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_end_short_string_unchanged() {
+        assert_eq!(truncate_end("abc", 5), "abc");
+    }
+
+    #[test]
+    fn truncate_end_long_string_uses_ellipsis() {
+        assert_eq!(truncate_end("abcdefghij", 6), "…fghij");
+    }
+
+    #[test]
+    fn file_path_hint_clone_shows_parent_only() {
+        let hint = file_path_hint("/home/user/out/sdb-clone.img", Operation::Clone, 40);
+        assert_eq!(hint, "/home/user/out");
+    }
+
+    #[test]
+    fn file_path_hint_flash_shows_full_path() {
+        let hint = file_path_hint("/home/user/image.img", Operation::Flash, 40);
+        assert_eq!(hint, "/home/user/image.img");
     }
 }
 
