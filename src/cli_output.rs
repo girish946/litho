@@ -84,6 +84,21 @@ impl CliOutput {
         }
     }
 
+    pub fn cancelled(&self, message: &str) {
+        match self.mode {
+            OutputMode::Terminal => {
+                println!("Cancelled: {message}");
+            }
+            OutputMode::Gui => {
+                println!(
+                    "@progress phase=cancelled msg={}",
+                    quote_gui(message)
+                );
+                println!("@done cancelled");
+            }
+        }
+    }
+
     pub fn dry_run_ok(&self, operation: &str, source: &str, target: &str, block_size: usize) {
         match self.mode {
             OutputMode::Terminal => {

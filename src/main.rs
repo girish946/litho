@@ -1,8 +1,12 @@
+mod cli_cancel;
 mod cli_output;
 
 use clap::{Parser, Subcommand};
-use liblitho::io_backend::{clone_io, flash_io};
+use cli_cancel::CANCEL_EXIT_CODE;
 use cli_output::{CliOutput, OutputMode};
+use liblitho::io_backend::{clone_io, flash_io};
+use liblitho::progress::is_operation_cancelled;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -15,6 +19,10 @@ struct Cli {
     /// Validate inputs and print the operation that would run, without performing I/O.
     #[arg(long = "dry-run", global = true, default_value_t = false)]
     dry_run: bool,
+
+    /// Path watched for cooperative cancel requests (GUI sidecar / pkexec).
+    #[arg(long = "cancel-file", global = true)]
+    cancel_file: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -79,14 +87,31 @@ fn run(cli: Cli) -> ExitCode {
             device,
             block_size,
             silent,
-        } => run_clone(&mut out, &device, &file, block_size, silent, cli.dry_run),
+        } => run_clone(
+            &mut out,
+            &device,
+            &file,
+            block_size,
+            silent,
+            cli.dry_run,
+            cli.cancel_file.as_deref(),
+        ),
         Commands::Flash {
             file,
             device,
             block_size,
             silent,
             verify,
-        } => run_flash(&mut out, &file, &device, block_size, silent, verify, cli.dry_run),
+        } => run_flash(
+            &mut out,
+            &file,
+            &device,
+            block_size,
+            silent,
+            verify,
+            cli.dry_run,
+            cli.cancel_file.as_deref(),
+        ),
         Commands::Query { device } => run_query(&out, device.as_deref()),
     }
 }
@@ -99,6 +124,7 @@ fn run_flash(
     silent: bool,
     verify: bool,
     dry_run: bool,
+    cancel_file: Option<&std::path::Path>,
 ) -> ExitCode {
     if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
         out.error(&e);
@@ -112,9 +138,12 @@ fn run_flash(
 
     out.operation_start("Flashing", file, device, block_size);
 
+    let cancel = cli_cancel::prepare_operation_cancel();
+    cli_cancel::spawn_cancel_watchers(cancel.clone(), cancel_file.map(PathBuf::from));
+    let cancel_ref = Some(cancel.as_ref());
     let result = if silent {
         flash_io::<fn(liblitho::progress::OperationProgress)>(
-            file, device, block_size, true, verify, None, None,
+            file, device, block_size, true, verify, None, cancel_ref,
         )
     } else {
         flash_io(
@@ -126,7 +155,7 @@ fn run_flash(
             Some(|event| {
                 out.on_progress(&event);
             }),
-            None,
+            cancel_ref,
         )
     };
 
@@ -136,6 +165,10 @@ fn run_flash(
         Ok(()) => {
             out.done_ok("flash");
             ExitCode::SUCCESS
+        }
+        Err(e) if is_operation_cancelled(&e) => {
+            out.cancelled("Flash cancelled - device may be partially written.");
+            ExitCode::from(CANCEL_EXIT_CODE)
         }
         Err(e) => {
             out.error(&e.to_string());
@@ -151,6 +184,7 @@ fn run_clone(
     block_size: usize,
     silent: bool,
     dry_run: bool,
+    cancel_file: Option<&std::path::Path>,
 ) -> ExitCode {
     if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
         out.error(&e);
@@ -164,9 +198,12 @@ fn run_clone(
 
     out.operation_start("Cloning", device, file, block_size);
 
+    let cancel = cli_cancel::prepare_operation_cancel();
+    cli_cancel::spawn_cancel_watchers(cancel.clone(), cancel_file.map(PathBuf::from));
+    let cancel_ref = Some(cancel.as_ref());
     let result = if silent {
         clone_io::<fn(liblitho::progress::OperationProgress)>(
-            device, file, block_size, true, None, None,
+            device, file, block_size, true, None, cancel_ref,
         )
     } else {
         clone_io(
@@ -177,7 +214,7 @@ fn run_clone(
             Some(|event| {
                 out.on_progress(&event);
             }),
-            None,
+            cancel_ref,
         )
     };
 
@@ -187,6 +224,10 @@ fn run_clone(
         Ok(()) => {
             out.done_ok("clone");
             ExitCode::SUCCESS
+        }
+        Err(e) if is_operation_cancelled(&e) => {
+            out.cancelled("Clone cancelled — incomplete output file removed.");
+            ExitCode::from(CANCEL_EXIT_CODE)
         }
         Err(e) => {
             out.error(&e.to_string());

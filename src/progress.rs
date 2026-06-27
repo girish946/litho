@@ -38,6 +38,14 @@ pub fn is_operation_cancelled(err: &anyhow::Error) -> bool {
     err.downcast_ref::<OperationCancelled>().is_some()
 }
 
+/// Line written to litho stdin by GUI hosts (e.g. Lithographer) to request cancel.
+/// Works across privilege boundaries where signals from the parent cannot reach pkexec.
+pub const STDIN_CANCEL_LINE: &str = "cancel";
+
+pub fn is_stdin_cancel_line(line: &str) -> bool {
+    line.trim().eq_ignore_ascii_case(STDIN_CANCEL_LINE)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct OperationProgress {
     pub phase: OperationPhase,
@@ -96,7 +104,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{is_stdin_cancel_line, STDIN_CANCEL_LINE, *};
 
     #[test]
     fn percentage_from_bytes() {
@@ -115,6 +123,12 @@ mod tests {
     fn check_cancel_errors_when_flag_set() {
         let flag = AtomicBool::new(true);
         assert_eq!(check_cancel(Some(&flag)), Err(OperationCancelled));
+    }
+
+    #[test]
+    fn stdin_cancel_line_is_stable() {
+        assert!(is_stdin_cancel_line(STDIN_CANCEL_LINE));
+        assert!(is_stdin_cancel_line("Cancel"));
     }
 
     #[test]
