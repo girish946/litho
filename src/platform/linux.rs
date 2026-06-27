@@ -11,6 +11,45 @@ pub struct LinuxDeviceReader {
     file: File,
 }
 
+/// Buffered device reader for clone and post-write verification (no `O_DIRECT`).
+///
+/// Direct I/O requires sector-aligned buffers, sizes, and offsets — unsuitable for
+/// typical `Vec`-backed read loops. Historical litho used plain `File::open` here.
+pub struct LinuxBufferedDeviceReader {
+    file: File,
+}
+
+impl DeviceReader for LinuxBufferedDeviceReader {
+    fn open(device_path: &str) -> Result<Self> {
+        debug!(
+            "Opening Linux device for buffered clone/verify read: {}",
+            device_path
+        );
+        let file = OpenOptions::new()
+            .read(true)
+            .open(device_path)
+            .context(format!(
+                "Failed to open device for verification read: {}",
+                device_path
+            ))?;
+        Ok(Self { file })
+    }
+
+    fn device_size(&self) -> Result<u64> {
+        let metadata = self
+            .file
+            .metadata()
+            .context("Failed to get device metadata")?;
+        Ok(metadata.len())
+    }
+}
+
+impl Read for LinuxBufferedDeviceReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buf)
+    }
+}
+
 impl DeviceReader for LinuxDeviceReader {
     fn open(device_path: &str) -> Result<Self> {
         debug!("Opening Linux device for reading: {}", device_path);

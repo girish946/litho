@@ -10,6 +10,14 @@ keywords = ["cli", "os", "image", "clone", "flash"]
 repository = "https://github.com/girish946/litho"
 categories = ["command-line-interface", "command-line-utilities"]
 
+[features]
+# Default: simulated flash/clone in binaries — safe for dev and `cargo test`.
+default = ["simulated-io"]
+simulated-io = []
+# Real block I/O in litho + litho-tui binaries. Build with:
+#   cargo build --no-default-features --features real-io
+real-io = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
@@ -22,13 +30,11 @@ path = "src/main_tui.rs"
 
 [dependencies]
 clap = { version = "4.4.18", features = ["derive", "cargo"] }
-tokio = { version = "1", features = ["full", "tracing"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 sha2 = "0.10.8"
 libc = "0.2.152"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-mio = "0.8.11"
-simple-pub-sub = "0.1.4"
 env_logger = "0.11.3"
 rust-lzma = "0.6.0"
 tempfile = "3.10.1"

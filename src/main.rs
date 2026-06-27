@@ -1,201 +1,291 @@
+mod cli_cancel;
+mod cli_output;
+
 use clap::{Parser, Subcommand};
-use liblitho::{clone, flash};
-use log::{error, info};
-use simple_pub_sub::client::Client;
-use tokio::sync::broadcast;
+use cli_cancel::CANCEL_EXIT_CODE;
+use cli_output::{CliOutput, OutputMode};
+use liblitho::io_backend::{clone_io, flash_io};
+use liblitho::progress::is_operation_cancelled;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Cli {
-    #[clap(subcommand)]
+    /// Output style: terminal progress bar or GUI-friendly line protocol.
+    #[arg(short = 'o', long = "output-mode", value_enum, default_value_t = OutputMode::Terminal, global = true)]
+    output_mode: OutputMode,
+
+    /// Validate inputs and print the operation that would run, without performing I/O.
+    #[arg(long = "dry-run", global = true, default_value_t = false)]
+    dry_run: bool,
+
+    /// Path watched for cooperative cancel requests (GUI sidecar / pkexec).
+    #[arg(long = "cancel-file", global = true)]
+    cancel_file: Option<PathBuf>,
+
+    #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Read a block device into an image file.
     Clone {
-        /// file to which device should be cloned.
-        #[clap(short, long)]
+        /// Output image file.
+        #[arg(short, long)]
         file: String,
 
-        /// device
-        #[clap(short, long)]
+        /// Source block device.
+        #[arg(short, long)]
         device: String,
 
-        /// block size
-        #[clap(short, long)]
-        block_size: Option<usize>,
+        /// I/O buffer size in bytes.
+        #[arg(short, long, default_value_t = 4096)]
+        block_size: usize,
 
-        /// message to be published
-        #[clap(short, long)]
-        silent: Option<bool>,
-
-        /// sockfile
-        #[clap(short = 'F', long)]
-        sockfile: Option<String>,
+        /// Suppress progress output.
+        #[arg(short, long, default_value_t = false)]
+        silent: bool,
     },
+    /// Write an image file to a block device.
     Flash {
-        /// file to be written to the device
-        #[clap(short, long)]
+        /// Image file to write.
+        #[arg(short, long)]
         file: String,
 
-        /// device
-        #[clap(short, long)]
+        /// Target block device.
+        #[arg(short, long)]
         device: String,
 
-        /// block size
-        #[clap(short, long)]
-        block_size: Option<usize>,
+        /// I/O buffer size in bytes.
+        #[arg(short, long, default_value_t = 4096)]
+        block_size: usize,
 
-        /// message to be published
-        #[clap(short, long)]
-        silent: Option<bool>,
+        /// Suppress progress output.
+        #[arg(short, long, default_value_t = false)]
+        silent: bool,
 
-        /// sockfile
-        #[clap(short = 'F', long)]
-        sockfile: Option<String>,
+        /// After writing, read the device back and compare SHA-256 checksums.
+        #[arg(long = "verify", default_value_t = false)]
+        verify: bool,
     },
+    /// List storage devices or query one device.
     Query {
-        /// device
-        #[clap(short, long)]
+        /// Optional device path to query.
+        #[arg(short, long)]
         device: Option<String>,
     },
 }
 
-fn callback_fn(percentage: f64) {
-    info!("Progress: {}%", percentage);
-}
+fn run(cli: Cli) -> ExitCode {
+    let mut out = CliOutput::new(cli.output_mode);
 
-async fn callback_fn_async(tx: broadcast::Sender<String>, mut client: Client) {
-    let mut rx = tx.subscribe();
-
-    loop {
-        let msg = match rx.recv().await {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!("Failed to receive message: {}", e);
-                continue;
-            }
-        };
-        match &client
-            .publish(
-                "test".to_string(),
-                format!("{{ \"bytes_cloned\": {} }}", msg)
-                    .as_bytes()
-                    .to_vec(),
-            )
-            .await
-        {
-            Ok(_) => {
-                info!("Published progress update");
-            }
-            Err(e) => {
-                error!("Failed to publish: {}", e);
-            }
-        };
-    }
-}
-
-#[tokio::main]
-pub async fn main() {
-    env_logger::init();
-    let cli = Cli::parse();
     match cli.command {
         Commands::Clone {
             file,
             device,
             block_size,
             silent,
-            sockfile,
-        } => {
-            info!(
-                "Clone command: file={}, device={}, block_size={:?}, silent={:?}",
-                file, device, block_size, silent
-            );
-            let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false);
-
-            if let Some(sockfile) = sockfile {
-                info!("Using socket file: {}", sockfile);
-                let (tx, _rx) = broadcast::channel::<String>(1000);
-
-                let client_type = simple_pub_sub::client::PubSubUnixClient { path: sockfile };
-                let mut client_obj = simple_pub_sub::client::Client::new(
-                    simple_pub_sub::client::PubSubClient::Unix(client_type),
-                );
-
-                // connect to the server.
-                if let Err(e) = client_obj.connect().await {
-                    error!("Failed to connect to pub-sub server: {}", e);
-                }
-
-                tokio::spawn(callback_fn_async(tx.clone(), client_obj));
-
-                match clone(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
-                    Ok(()) => info!("Clone operation completed successfully"),
-                    Err(e) => error!("Clone operation failed: {}", e),
-                };
-            } else {
-                match clone(device, file, blk_size, silent, Some(callback_fn), None) {
-                    Ok(()) => info!("Clone operation completed successfully"),
-                    Err(e) => error!("Clone operation failed: {}", e),
-                };
-            }
-        }
+        } => run_clone(
+            &mut out,
+            &device,
+            &file,
+            block_size,
+            silent,
+            cli.dry_run,
+            cli.cancel_file.as_deref(),
+        ),
         Commands::Flash {
             file,
             device,
             block_size,
             silent,
-            sockfile,
-        } => {
-            info!(
-                "Flash command: file={}, device={}, block_size={:?}, silent={:?}",
-                file, device, block_size, silent
-            );
-            let blk_size = block_size.unwrap_or(4096);
-            let silent = silent.unwrap_or(false);
-            if let Some(sockfile) = sockfile {
-                let client_type = simple_pub_sub::client::PubSubUnixClient { path: sockfile };
-                let mut client_obj = simple_pub_sub::client::Client::new(
-                    simple_pub_sub::client::PubSubClient::Unix(client_type),
-                );
+            verify,
+        } => run_flash(
+            &mut out,
+            &file,
+            &device,
+            block_size,
+            silent,
+            verify,
+            cli.dry_run,
+            cli.cancel_file.as_deref(),
+        ),
+        Commands::Query { device } => run_query(&out, device.as_deref()),
+    }
+}
 
-                // connect to the server.
-                if let Err(e) = client_obj.connect().await {
-                    error!("Failed to connect to pub-sub server: {}", e);
-                }
+fn run_flash(
+    out: &mut CliOutput,
+    file: &str,
+    device: &str,
+    block_size: usize,
+    silent: bool,
+    verify: bool,
+    dry_run: bool,
+    cancel_file: Option<&std::path::Path>,
+) -> ExitCode {
+    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+        out.error(&e);
+        return ExitCode::FAILURE;
+    }
 
-                let (tx, _rx) = broadcast::channel(1000);
-                tokio::spawn(callback_fn_async(tx.clone(), client_obj));
-                match flash(file, device, blk_size, silent, Some(callback_fn), Some(tx)) {
-                    Ok(_) => info!("Flash operation completed successfully"),
-                    Err(e) => error!("Flash operation failed: {}", e),
-                };
-            } else {
-                match flash(file, device, blk_size, silent, Some(callback_fn), None) {
-                    Ok(_) => info!("Flash operation completed successfully"),
-                    Err(e) => error!("Flash operation failed: {}", e),
-                };
-            }
+    if dry_run {
+        out.dry_run_ok("flash", file, device, block_size);
+        return ExitCode::SUCCESS;
+    }
+
+    out.operation_start("Flashing", file, device, block_size);
+
+    let cancel = cli_cancel::prepare_operation_cancel();
+    cli_cancel::spawn_cancel_watchers(cancel.clone(), cancel_file.map(PathBuf::from));
+    let cancel_ref = Some(cancel.as_ref());
+    let result = if silent {
+        flash_io::<fn(liblitho::progress::OperationProgress)>(
+            file, device, block_size, true, verify, None, cancel_ref,
+        )
+    } else {
+        flash_io(
+            file,
+            device,
+            block_size,
+            false,
+            verify,
+            Some(|event| {
+                out.on_progress(&event);
+            }),
+            cancel_ref,
+        )
+    };
+
+    out.finish_progress_line();
+
+    match result {
+        Ok(()) => {
+            out.done_ok("flash");
+            ExitCode::SUCCESS
         }
-        Commands::Query { device } => match device {
-            Some(device) => {
-                info!("Querying device: {}", device);
-            }
-            None => {
-                info!("Querying all storage devices");
-                match liblitho::devices::get_storage_devices() {
-                    Ok(devices) => {
-                        for device in devices {
-                            info!("{}", device);
+        Err(e) if is_operation_cancelled(&e) => {
+            out.cancelled("Flash cancelled - device may be partially written.");
+            ExitCode::from(CANCEL_EXIT_CODE)
+        }
+        Err(e) => {
+            out.error(&e.to_string());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_clone(
+    out: &mut CliOutput,
+    device: &str,
+    file: &str,
+    block_size: usize,
+    silent: bool,
+    dry_run: bool,
+    cancel_file: Option<&std::path::Path>,
+) -> ExitCode {
+    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+        out.error(&e);
+        return ExitCode::FAILURE;
+    }
+
+    if dry_run {
+        out.dry_run_ok("clone", device, file, block_size);
+        return ExitCode::SUCCESS;
+    }
+
+    out.operation_start("Cloning", device, file, block_size);
+
+    let cancel = cli_cancel::prepare_operation_cancel();
+    cli_cancel::spawn_cancel_watchers(cancel.clone(), cancel_file.map(PathBuf::from));
+    let cancel_ref = Some(cancel.as_ref());
+    let result = if silent {
+        clone_io::<fn(liblitho::progress::OperationProgress)>(
+            device, file, block_size, true, None, cancel_ref,
+        )
+    } else {
+        clone_io(
+            device,
+            file,
+            block_size,
+            false,
+            Some(|event| {
+                out.on_progress(&event);
+            }),
+            cancel_ref,
+        )
+    };
+
+    out.finish_progress_line();
+
+    match result {
+        Ok(()) => {
+            out.done_ok("clone");
+            ExitCode::SUCCESS
+        }
+        Err(e) if is_operation_cancelled(&e) => {
+            out.cancelled("Clone cancelled — incomplete output file removed.");
+            ExitCode::from(CANCEL_EXIT_CODE)
+        }
+        Err(e) => {
+            out.error(&e.to_string());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_query(out: &CliOutput, device: Option<&str>) -> ExitCode {
+    match device {
+        Some(path) => {
+            out.query_status(&format!("Querying device: {path}"));
+            // Single-device lookup is not implemented yet; list all and let the user filter.
+            match liblitho::devices::get_storage_devices() {
+                Ok(devices) => {
+                    let mut found = false;
+                    for dev in devices {
+                        if device_path_matches(&dev.device_name, path) {
+                            out.query_device(&dev);
+                            found = true;
+                            break;
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to get storage devices: {}", e)
+                    if !found {
+                        out.error(&format!("Device not found: {path}"));
+                        return ExitCode::FAILURE;
                     }
-                };
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    out.error(&e.to_string());
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        None => match liblitho::devices::get_storage_devices() {
+            Ok(devices) => {
+                if devices.is_empty() {
+                    out.query_status("No storage devices found");
+                } else {
+                    for dev in devices {
+                        out.query_device(&dev);
+                    }
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                out.error(&e.to_string());
+                ExitCode::FAILURE
             }
         },
     }
+}
+
+fn device_path_matches(device_name: &str, query_path: &str) -> bool {
+    query_path.trim() == device_name.trim()
+}
+
+fn main() -> ExitCode {
+    run(Cli::parse())
 }
