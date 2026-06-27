@@ -426,36 +426,39 @@ impl App {
 
     pub fn cancel_operation(&mut self) {
         self.operation_cancel.store(true, Ordering::Relaxed);
-        self.is_running = false;
-        self.progress = 0.0;
         info!("Operation cancel requested");
         self.set_status(
-            StatusState::Cancelled,
-            String::from("Operation cancelled by user."),
+            StatusState::InProgress,
+            String::from("Cancelling — waiting for I/O to stop..."),
         );
     }
 
     pub fn check_progress(&mut self) {
-        if self.operation_cancel.load(Ordering::Relaxed) && !self.is_running {
-            return;
-        }
-
         loop {
             match self.progress_rx.try_recv() {
                 Ok(progress) => {
-                    if self.operation_cancel.load(Ordering::Relaxed) {
+                    if self.operation_cancel.load(Ordering::Relaxed)
+                        && progress.phase != OperationPhase::Cancelled
+                    {
                         continue;
                     }
                     self.apply_progress(progress);
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    if self.is_running && !self.operation_cancel.load(Ordering::Relaxed) {
+                    if self.is_running {
                         self.is_running = false;
-                        self.set_status(
-                            StatusState::Error,
-                            String::from("Operation ended unexpectedly."),
-                        );
+                        if self.operation_cancel.load(Ordering::Relaxed) {
+                            self.set_status(
+                                StatusState::Cancelled,
+                                String::from("Operation cancelled by user."),
+                            );
+                        } else {
+                            self.set_status(
+                                StatusState::Error,
+                                String::from("Operation ended unexpectedly."),
+                            );
+                        }
                     }
                     break;
                 }
@@ -464,7 +467,9 @@ impl App {
     }
 
     fn apply_progress(&mut self, progress: OperationProgress) {
-        if self.operation_cancel.load(Ordering::Relaxed) {
+        if self.operation_cancel.load(Ordering::Relaxed)
+            && progress.phase != OperationPhase::Cancelled
+        {
             return;
         }
 
@@ -508,6 +513,15 @@ impl App {
                     progress
                         .message
                         .unwrap_or_else(|| String::from("Operation failed.")),
+                );
+            }
+            OperationPhase::Cancelled => {
+                self.is_running = false;
+                self.set_status(
+                    StatusState::Cancelled,
+                    progress
+                        .message
+                        .unwrap_or_else(|| String::from("Operation cancelled by user.")),
                 );
             }
         }
@@ -744,6 +758,7 @@ fn phase_detail(progress: &OperationProgress) -> String {
         OperationPhase::Verifying => "Verifying checksum...".to_string(),
         OperationPhase::Complete => "Operation complete.".to_string(),
         OperationPhase::Failed => "Operation failed.".to_string(),
+        OperationPhase::Cancelled => "Operation cancelled.".to_string(),
     }
 }
 

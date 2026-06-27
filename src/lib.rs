@@ -10,7 +10,10 @@ use anyhow::{Context, Result};
 use log::{debug, info, warn};
 use lzma::reader::LzmaReader;
 use platform::PlatformDevice;
-use progress::{emit_progress, OperationPhase, OperationProgress};
+use progress::{
+    check_cancel, emit_progress, OperationCancelled, OperationPhase, OperationProgress,
+};
+use std::sync::atomic::AtomicBool;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::BufWriter;
@@ -18,13 +21,18 @@ use std::io::{BufReader, Read, Write};
 use tempfile::NamedTempFile;
 
 /// Calculate the checksum of the data read from the given reader
-fn calculate_checksum<R: Read>(reader: &mut R, size: usize) -> Result<String> {
+fn calculate_checksum<R: Read>(
+    reader: &mut R,
+    size: usize,
+    cancel: Option<&AtomicBool>,
+) -> Result<String> {
     let mut hasher = Sha256::new();
     let chunk = 65536usize;
     let mut buffer = vec![0u8; chunk];
     let mut remaining = size;
 
     while remaining > 0 {
+        check_cancel(cancel)?;
         let to_read = remaining.min(buffer.len());
         let bytes_read = reader
             .read(&mut buffer[..to_read])
@@ -46,6 +54,7 @@ pub fn clone<F>(
     block_size: usize,
     silent: bool,
     mut progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -79,28 +88,45 @@ where
     let mut buffer = vec![0u8; block_size];
     let mut total_bytes_read: u64 = 0;
 
-    loop {
-        let bytes_read = device_reader
-            .read(&mut buffer)
-            .context("Failed to read from device")?;
-        if bytes_read == 0 {
-            break;
-        }
-        writer
-            .write_all(&buffer[..bytes_read])
-            .context("Failed to write to output file")?;
-        total_bytes_read += bytes_read as u64;
+    let result = (|| -> Result<()> {
+        loop {
+            check_cancel(cancel)?;
+            let bytes_read = device_reader
+                .read(&mut buffer)
+                .context("Failed to read from device")?;
+            if bytes_read == 0 {
+                break;
+            }
+            writer
+                .write_all(&buffer[..bytes_read])
+                .context("Failed to write to output file")?;
+            total_bytes_read += bytes_read as u64;
 
-        let mut event = OperationProgress::new(OperationPhase::Writing)
-            .with_bytes(total_bytes_read, total_bytes);
-        if total_bytes.is_none() {
-            event = event.with_message(format!("{} bytes copied", total_bytes_read));
-        }
-        emit_progress(silent, &mut progress, event);
+            let mut event = OperationProgress::new(OperationPhase::Writing)
+                .with_bytes(total_bytes_read, total_bytes);
+            if total_bytes.is_none() {
+                event = event.with_message(format!("{} bytes copied", total_bytes_read));
+            }
+            emit_progress(silent, &mut progress, event);
 
-        if !silent {
-            debug!("Read and written {} bytes", total_bytes_read);
+            if !silent {
+                debug!("Read and written {} bytes", total_bytes_read);
+            }
         }
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        drop(writer);
+        if error.downcast_ref::<OperationCancelled>().is_some() {
+            if let Err(remove_error) = std::fs::remove_file(&output_path) {
+                warn!(
+                    "Failed to remove incomplete clone output {}: {}",
+                    output_path, remove_error
+                );
+            }
+        }
+        return Err(error);
     }
 
     emit_progress(
@@ -127,6 +153,7 @@ pub fn flash<F>(
     silent: bool,
     verify: bool,
     progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -140,6 +167,7 @@ where
             silent,
             verify,
             progress,
+            cancel,
         )
     } else {
         flash_image(
@@ -150,6 +178,7 @@ where
             progress,
             false,
             verify,
+            cancel,
         )
     }
 }
@@ -162,6 +191,7 @@ fn flash_image<F>(
     mut progress: Option<F>,
     skip_prepare: bool,
     verify: bool,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -175,6 +205,8 @@ where
         );
     }
 
+    check_cancel(cancel)?;
+
     let mut img_file =
         File::open(&img_path).context(format!("Image file not found: {}", img_path))?;
     let file_size = img_file
@@ -183,7 +215,7 @@ where
         .len();
     let file_size_usize = usize::try_from(file_size).context("File size too large")?;
     let img_checksum = if verify {
-        let checksum = calculate_checksum(&mut img_file, file_size_usize)
+        let checksum = calculate_checksum(&mut img_file, file_size_usize, cancel)
             .context("Failed to calculate image checksum")?;
         if !silent {
             info!("Source image checksum: {}", checksum);
@@ -206,7 +238,11 @@ where
     }
 
     let mut count: u64 = 0;
-    while let Ok(bytes_read) = reader.read(&mut buffer) {
+    loop {
+        check_cancel(cancel)?;
+        let bytes_read = reader
+            .read(&mut buffer)
+            .context("Failed to read image file")?;
         if bytes_read == 0 {
             break;
         }
@@ -276,6 +312,7 @@ where
         &mut progress,
         &mut verified,
         file_size,
+        cancel,
     )?;
     let device_checksum = format!("{:x}", verify_hasher.finalize());
 
@@ -313,6 +350,7 @@ fn verify_checksum_with_progress<F>(
     progress: &mut Option<F>,
     verified: &mut u64,
     file_size: u64,
+    cancel: Option<&AtomicBool>,
 ) -> Result<Sha256>
 where
     F: FnMut(OperationProgress),
@@ -322,6 +360,7 @@ where
     let mut remaining = size;
 
     while remaining > 0 {
+        check_cancel(cancel)?;
         let to_read = remaining.min(buffer.len());
         let bytes_read = reader
             .read(&mut buffer[..to_read])
@@ -364,6 +403,7 @@ pub fn flash_xz<F>(
     silent: bool,
     verify: bool,
     mut progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -382,6 +422,7 @@ where
         temp_file_str.clone(),
         silent,
         &mut progress,
+        cancel,
     )?;
 
     let result = flash_image(
@@ -392,6 +433,7 @@ where
         progress,
         true,
         verify,
+        cancel,
     );
 
     debug!("Deleting temporary file");
@@ -410,6 +452,7 @@ fn decompress_img<F>(
     decompressed_file: String,
     silent: bool,
     progress: &mut Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -445,6 +488,7 @@ where
     let mut decompressed: u64 = 0;
 
     loop {
+        check_cancel(cancel)?;
         let bytes_read = decoder
             .read(&mut buffer)
             .context("Failed to read from compressed stream")?;

@@ -5,6 +5,7 @@
 
 use crate::progress::OperationProgress;
 use anyhow::Result;
+use std::sync::atomic::AtomicBool;
 
 #[cfg(all(feature = "real-io", feature = "simulated-io"))]
 compile_error!("Features `real-io` and `simulated-io` are mutually exclusive. Build real I/O with: cargo build --no-default-features --features real-io");
@@ -27,6 +28,7 @@ pub fn flash_io<F>(
     silent: bool,
     verify: bool,
     progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -40,12 +42,21 @@ where
             silent,
             verify,
             progress,
+            cancel,
         )
     }
 
     #[cfg(not(feature = "real-io"))]
     {
-        cli_simulate::simulate_flash(image, device, block_size, silent, verify, progress)
+        cli_simulate::simulate_flash(
+            image,
+            device,
+            block_size,
+            silent,
+            verify,
+            progress,
+            cancel,
+        )
     }
 }
 
@@ -55,6 +66,7 @@ pub fn clone_io<F>(
     block_size: usize,
     silent: bool,
     progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -67,12 +79,13 @@ where
             block_size,
             silent,
             progress,
+            cancel,
         )
     }
 
     #[cfg(not(feature = "real-io"))]
     {
-        cli_simulate::simulate_clone(device, file, block_size, silent, progress)
+        cli_simulate::simulate_clone(device, file, block_size, silent, progress, cancel)
     }
 }
 

@@ -1,5 +1,6 @@
 use anyhow::Result;
-use crate::progress::{OperationPhase, OperationProgress};
+use crate::progress::{check_cancel, OperationPhase, OperationProgress};
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
 
@@ -14,6 +15,7 @@ pub fn simulate_flash<F>(
     silent: bool,
     verify: bool,
     mut progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -25,9 +27,12 @@ where
             .with_message(format!("Opening image {image} (simulated)")),
     );
 
+    check_cancel(cancel)?;
     thread::sleep(Duration::from_millis(80));
+    check_cancel(cancel)?;
 
     for step in 1..=SIMULATED_STEPS {
+        check_cancel(cancel)?;
         let bytes = SIMULATED_TOTAL_BYTES * step / SIMULATED_STEPS;
         let pct = if verify {
             (bytes as f64 / SIMULATED_TOTAL_BYTES as f64) * 90.0
@@ -45,6 +50,7 @@ where
     }
 
     if verify {
+        check_cancel(cancel)?;
         emit(
             silent,
             &mut progress,
@@ -54,6 +60,7 @@ where
         );
 
         for step in 1..=5 {
+            check_cancel(cancel)?;
             let verified = SIMULATED_TOTAL_BYTES * step / 5;
             let pct = 90.0 + (verified as f64 / SIMULATED_TOTAL_BYTES as f64) * 10.0;
             emit(
@@ -67,6 +74,7 @@ where
         }
     }
 
+    check_cancel(cancel)?;
     emit(
         silent,
         &mut progress,
@@ -88,6 +96,7 @@ pub fn simulate_clone<F>(
     block_size: usize,
     silent: bool,
     mut progress: Option<F>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()>
 where
     F: FnMut(OperationProgress),
@@ -99,9 +108,12 @@ where
             .with_message(format!("Opening {device} (simulated)")),
     );
 
+    check_cancel(cancel)?;
     thread::sleep(Duration::from_millis(80));
+    check_cancel(cancel)?;
 
     for step in 1..=SIMULATED_STEPS {
+        check_cancel(cancel)?;
         let bytes = SIMULATED_TOTAL_BYTES * step / SIMULATED_STEPS;
         let pct = (bytes as f64 / SIMULATED_TOTAL_BYTES as f64) * 100.0;
         emit(
@@ -114,6 +126,7 @@ where
         thread::sleep(Duration::from_millis(40));
     }
 
+    check_cancel(cancel)?;
     emit(
         silent,
         &mut progress,

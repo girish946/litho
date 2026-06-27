@@ -137,6 +137,7 @@ fn phase_label(phase: OperationPhase) -> &'static str {
         OperationPhase::Verifying => "Verifying",
         OperationPhase::Complete => "Complete",
         OperationPhase::Failed => "Failed",
+        OperationPhase::Cancelled => "Cancelled",
     }
 }
 
@@ -179,6 +180,7 @@ fn phase_snake(phase: OperationPhase) -> &'static str {
         OperationPhase::Verifying => "verifying",
         OperationPhase::Complete => "complete",
         OperationPhase::Failed => "failed",
+        OperationPhase::Cancelled => "cancelled",
     }
 }
 

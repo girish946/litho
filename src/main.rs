@@ -114,7 +114,7 @@ fn run_flash(
 
     let result = if silent {
         flash_io::<fn(liblitho::progress::OperationProgress)>(
-            file, device, block_size, true, verify, None,
+            file, device, block_size, true, verify, None, None,
         )
     } else {
         flash_io(
@@ -126,6 +126,7 @@ fn run_flash(
             Some(|event| {
                 out.on_progress(&event);
             }),
+            None,
         )
     };
 
@@ -165,7 +166,7 @@ fn run_clone(
 
     let result = if silent {
         clone_io::<fn(liblitho::progress::OperationProgress)>(
-            device, file, block_size, true, None,
+            device, file, block_size, true, None, None,
         )
     } else {
         clone_io(
@@ -176,6 +177,7 @@ fn run_clone(
             Some(|event| {
                 out.on_progress(&event);
             }),
+            None,
         )
     };
 

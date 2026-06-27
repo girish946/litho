@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -9,6 +10,32 @@ pub enum OperationPhase {
     Verifying,
     Complete,
     Failed,
+    Cancelled,
+}
+
+/// Returned when an in-flight flash/clone stops because the caller set the cancel flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationCancelled;
+
+impl std::fmt::Display for OperationCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Operation cancelled")
+    }
+}
+
+impl std::error::Error for OperationCancelled {}
+
+/// Best-effort cooperative cancel check for block I/O loops.
+pub fn check_cancel(cancel: Option<&AtomicBool>) -> Result<(), OperationCancelled> {
+    if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        Err(OperationCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+pub fn is_operation_cancelled(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<OperationCancelled>().is_some()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,6 +102,25 @@ mod tests {
     fn percentage_from_bytes() {
         let p = OperationProgress::new(OperationPhase::Writing).with_bytes(50, Some(200));
         assert!((p.percentage.unwrap() - 25.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn check_cancel_passes_when_flag_clear() {
+        let flag = AtomicBool::new(false);
+        assert!(check_cancel(Some(&flag)).is_ok());
+        assert!(check_cancel(None).is_ok());
+    }
+
+    #[test]
+    fn check_cancel_errors_when_flag_set() {
+        let flag = AtomicBool::new(true);
+        assert_eq!(check_cancel(Some(&flag)), Err(OperationCancelled));
+    }
+
+    #[test]
+    fn cancelled_phase_serializes() {
+        let json = serde_json::to_string(&OperationPhase::Cancelled).unwrap();
+        assert_eq!(json, "\"cancelled\"");
     }
 
     #[test]
