@@ -11,11 +11,10 @@ pub struct LinuxDeviceReader {
     file: File,
 }
 
-/// Buffered device reader for post-write verification (no `O_DIRECT`).
+/// Buffered device reader for clone and post-write verification (no `O_DIRECT`).
 ///
 /// Direct I/O requires sector-aligned buffers, sizes, and offsets — unsuitable for
-/// arbitrary-length checksum reads. Historical litho opened the device with plain
-/// `File::open` for verification.
+/// typical `Vec`-backed read loops. Historical litho used plain `File::open` here.
 pub struct LinuxBufferedDeviceReader {
     file: File,
 }
@@ -23,7 +22,7 @@ pub struct LinuxBufferedDeviceReader {
 impl DeviceReader for LinuxBufferedDeviceReader {
     fn open(device_path: &str) -> Result<Self> {
         debug!(
-            "Opening Linux device for buffered verification read: {}",
+            "Opening Linux device for buffered clone/verify read: {}",
             device_path
         );
         let file = OpenOptions::new()

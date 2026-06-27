@@ -74,7 +74,7 @@ where
             .with_message(format!("Opening {}", device_path)),
     );
 
-    let mut device_reader = PlatformDevice::new_reader(&device_path)?;
+    let mut device_reader = PlatformDevice::new_clone_reader(&device_path)?;
 
     let total_bytes = device_reader
         .device_size()
@@ -129,6 +129,10 @@ where
         }
         return Err(error);
     }
+
+    writer
+        .flush()
+        .context("Failed to flush clone output file")?;
 
     emit_progress(
         silent,

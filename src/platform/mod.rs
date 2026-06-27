@@ -57,6 +57,13 @@ impl PlatformDevice {
         }
     }
 
+    /// Open a device for clone or verify reads (buffered/cached I/O).
+    ///
+    /// Clone must not use `O_DIRECT`: `read(2)` buffers from `Vec` are not sector-aligned.
+    pub fn new_clone_reader(device_path: &str) -> Result<Box<dyn DeviceReader>> {
+        Self::new_verify_reader(device_path)
+    }
+
     /// Open a device for post-write checksum verification (buffered/cached reads).
     pub fn new_verify_reader(device_path: &str) -> Result<Box<dyn DeviceReader>> {
         #[cfg(target_os = "linux")]
