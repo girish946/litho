@@ -126,9 +126,11 @@ fn run_flash(
     dry_run: bool,
     cancel_file: Option<&std::path::Path>,
 ) -> ExitCode {
-    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
-        out.error(&e);
-        return ExitCode::FAILURE;
+    if !dry_run {
+        if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+            out.error(&e);
+            return ExitCode::FAILURE;
+        }
     }
 
     if dry_run {
@@ -186,9 +188,11 @@ fn run_clone(
     dry_run: bool,
     cancel_file: Option<&std::path::Path>,
 ) -> ExitCode {
-    if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
-        out.error(&e);
-        return ExitCode::FAILURE;
+    if !dry_run {
+        if let Err(e) = liblitho::devices::validate_device_safe_for_io(device) {
+            out.error(&e);
+            return ExitCode::FAILURE;
+        }
     }
 
     if dry_run {
@@ -283,7 +287,15 @@ fn run_query(out: &CliOutput, device: Option<&str>) -> ExitCode {
 }
 
 fn device_path_matches(device_name: &str, query_path: &str) -> bool {
-    query_path.trim() == device_name.trim()
+    #[cfg(target_os = "windows")]
+    {
+        return liblitho::platform::windows_devices::device_path_matches(device_name, query_path);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        query_path.trim() == device_name.trim()
+    }
 }
 
 fn main() -> ExitCode {

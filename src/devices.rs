@@ -508,120 +508,133 @@ pub fn is_removable_device(device_path: &str) -> Result<bool> {
 }
 
 pub fn get_storage_devices() -> Result<Vec<DeviceInfo>> {
-    let paths = fs::read_dir("/sys/block/").context("Failed to read /sys/block/ directory")?;
-    let mut devices: Vec<DeviceInfo> = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        return crate::platform::windows_devices::get_storage_devices();
+    }
 
-    for path in paths {
-        let p = path.context("Failed to read directory entry")?;
-        let mut dev = p.path().clone();
-        let device_end_name = match p.path().clone().file_name() {
-            Some(device) => match device.to_str() {
-                Some(dev) => dev.to_string(),
+    #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
+    {
+        return Ok(Vec::new());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let paths = fs::read_dir("/sys/block/").context("Failed to read /sys/block/ directory")?;
+        let mut devices: Vec<DeviceInfo> = Vec::new();
+
+        for path in paths {
+            let p = path.context("Failed to read directory entry")?;
+            let mut dev = p.path().clone();
+            let device_end_name = match p.path().clone().file_name() {
+                Some(device) => match device.to_str() {
+                    Some(dev) => dev.to_string(),
+                    None => {
+                        warn!("Could not convert device name to string");
+                        continue;
+                    }
+                },
                 None => {
-                    warn!("Could not convert device name to string");
+                    warn!("Could not get device name");
                     continue;
-                }
-            },
-            None => {
-                warn!("Could not get device name");
-                continue;
-            }
-        };
-
-        dev.push("device");
-        if dev.exists() {
-            dev.push("vendor");
-            let vendor_name_file = match dev.clone().into_os_string().to_str() {
-                Some(name) => name.to_string(),
-                None => {
-                    warn!("Could not convert vendor path to string");
-                    String::new()
                 }
             };
 
-            let mut dev_vendor_name = String::new();
-            if !vendor_name_file.is_empty() {
-                dev_vendor_name = match get_file_content(vendor_name_file) {
-                    Ok(name) => name.replace('\n', ""),
-                    Err(e) => {
-                        warn!("Failed to read vendor name: {}", e);
+            dev.push("device");
+            if dev.exists() {
+                dev.push("vendor");
+                let vendor_name_file = match dev.clone().into_os_string().to_str() {
+                    Some(name) => name.to_string(),
+                    None => {
+                        warn!("Could not convert vendor path to string");
                         String::new()
                     }
                 };
-            }
 
-            dev.pop();
-            dev.push("model");
-            let model_name_file = match dev.clone().into_os_string().to_str() {
-                Some(name) => name.to_string(),
-                None => String::new(),
-            };
-
-            let model_name = match get_file_content(model_name_file) {
-                Ok(model) => model.replace('\n', ""),
-                Err(e) => {
-                    warn!("Failed to read model name: {}", e);
-                    String::new()
+                let mut dev_vendor_name = String::new();
+                if !vendor_name_file.is_empty() {
+                    dev_vendor_name = match get_file_content(vendor_name_file) {
+                        Ok(name) => name.replace('\n', ""),
+                        Err(e) => {
+                            warn!("Failed to read vendor name: {}", e);
+                            String::new()
+                        }
+                    };
                 }
-            };
 
-            dev.pop();
-            dev.pop();
-            dev.push("removable");
-            let mut removable = String::new();
-            if dev.exists() {
-                removable = match fs::read_to_string(dev.clone()) {
-                    Ok(removable) => removable,
+                dev.pop();
+                dev.push("model");
+                let model_name_file = match dev.clone().into_os_string().to_str() {
+                    Some(name) => name.to_string(),
+                    None => String::new(),
+                };
+
+                let model_name = match get_file_content(model_name_file) {
+                    Ok(model) => model.replace('\n', ""),
                     Err(e) => {
-                        warn!("Failed to read removable status: {}", e);
+                        warn!("Failed to read model name: {}", e);
                         String::new()
                     }
-                }
-            }
+                };
 
-            dev.pop();
-            dev.push("size");
-            let size: u64 = match fs::read_to_string(dev.clone()) {
-                Ok(size_str) => match size_str.trim().parse::<u64>() {
-                    Ok(s) => s,
+                dev.pop();
+                dev.pop();
+                dev.push("removable");
+                let mut removable = String::new();
+                if dev.exists() {
+                    removable = match fs::read_to_string(dev.clone()) {
+                        Ok(removable) => removable,
+                        Err(e) => {
+                            warn!("Failed to read removable status: {}", e);
+                            String::new()
+                        }
+                    }
+                }
+
+                dev.pop();
+                dev.push("size");
+                let size: u64 = match fs::read_to_string(dev.clone()) {
+                    Ok(size_str) => match size_str.trim().parse::<u64>() {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!("Failed to parse size: {}", e);
+                            0
+                        }
+                    },
                     Err(e) => {
-                        warn!("Failed to parse size: {}", e);
+                        warn!("Failed to read size: {}", e);
                         0
                     }
-                },
-                Err(e) => {
-                    warn!("Failed to read size: {}", e);
-                    0
-                }
-            };
+                };
 
-            if !device_end_name.is_empty() {
-                let mut dev_path = PathBuf::from("/dev/");
-                dev_path.push(device_end_name);
-                if dev_path.exists() {
-                    if removable == "1\n" {
-                        let dev_info = DeviceInfo {
-                            device_name: dev_path.display().to_string(),
-                            vendor_name: dev_vendor_name,
-                            model_name,
-                            removable: 1,
-                            size,
-                        };
-                        devices.push(dev_info);
-                    } else if removable == "0\n" {
-                        let dev_info = DeviceInfo {
-                            device_name: dev_path.display().to_string(),
-                            vendor_name: dev_vendor_name,
-                            model_name,
-                            removable: 0,
-                            size,
-                        };
-                        devices.push(dev_info);
+                if !device_end_name.is_empty() {
+                    let mut dev_path = PathBuf::from("/dev/");
+                    dev_path.push(device_end_name);
+                    if dev_path.exists() {
+                        if removable == "1\n" {
+                            let dev_info = DeviceInfo {
+                                device_name: dev_path.display().to_string(),
+                                vendor_name: dev_vendor_name,
+                                model_name,
+                                removable: 1,
+                                size,
+                            };
+                            devices.push(dev_info);
+                        } else if removable == "0\n" {
+                            let dev_info = DeviceInfo {
+                                device_name: dev_path.display().to_string(),
+                                vendor_name: dev_vendor_name,
+                                model_name,
+                                removable: 0,
+                                size,
+                            };
+                            devices.push(dev_info);
+                        }
                     }
                 }
             }
         }
+        debug!("Found {} devices", devices.len());
+        Ok(devices)
     }
-    debug!("Found {} devices", devices.len());
-    Ok(devices)
 }
