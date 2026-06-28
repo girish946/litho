@@ -2,21 +2,59 @@ use std::fs;
 use std::process::{Command, Stdio};
 
 pub fn is_running_as_root() -> bool {
-    unsafe { libc::geteuid() == 0 }
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        // On Windows there is no direct euid==0 equivalent exposed by default libc.
+        // A full impl would use IsUserAnAdmin() / token checks.
+        // For dry-run / simulated use on Windows, return false (user should use elevated shell if doing real work later).
+        false
+    }
+}
+
+/// Portable helper for logging euid (0 on Windows).
+pub fn current_euid_or_0() -> u32 {
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() }
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
 }
 
 pub fn pkexec_on_path() -> bool {
-    Command::new("which")
-        .arg("pkexec")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    #[cfg(not(unix))]
+    {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        Command::new("which")
+            .arg("pkexec")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
 }
 
 fn current_username() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("LOGNAME"))
-        .unwrap_or_else(|_| "root".to_string())
+    #[cfg(windows)]
+    {
+        std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_else(|_| "user".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "root".to_string())
+    }
 }
 
 fn extract_executable_path_from_ps(line: &str) -> Option<String> {

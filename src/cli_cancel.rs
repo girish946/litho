@@ -18,6 +18,7 @@ static HANDLERS_INSTALLED: std::sync::Once = std::sync::Once::new();
 
 const CANCEL_FILE_POLL_MS: u64 = 50;
 
+#[cfg(unix)]
 extern "C" fn on_cancel_signal(_: libc::c_int) {
     if let Some(flag) = OPERATION_CANCEL.get() {
         flag.store(true, Ordering::Relaxed);

@@ -769,7 +769,7 @@ fn check_tty() -> io::Result<()> {
     let stdout_tty = io::stdout().is_terminal();
     info!(
         "Terminal check: stdin_tty={stdin_tty}, stdout_tty={stdout_tty}, euid={}",
-        unsafe { libc::geteuid() }
+        crate::tui::privilege::current_euid_or_0()
     );
 
     if !stdin_tty || !stdout_tty {
@@ -874,7 +874,7 @@ pub async fn run_tui(launch: LaunchParams) -> Result<(), io::Error> {
     info!(
         "TUI session: euid={}, root={}, polkit={}, terminal={}x{}, devices={}, \
          launch={{ mode={log_mode:?}, device={log_device:?}, image={log_image:?}, start={log_start} }}",
-        unsafe { libc::geteuid() },
+        crate::tui::privilege::current_euid_or_0(),
         app.is_root,
         app.polkit_available,
         term_size.width,

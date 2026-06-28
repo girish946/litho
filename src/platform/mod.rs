@@ -7,6 +7,8 @@ mod linux;
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "windows")]
+pub mod windows_devices;
 
 /// Trait for reading from a device in a platform-specific way
 pub trait DeviceReader: Read {

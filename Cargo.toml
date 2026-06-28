@@ -40,7 +40,12 @@ rust-lzma = "0.6.0"
 tempfile = "3.10.1"
 anyhow = "1.0"
 log = "0.4"
-openssl = {version= "0.10.75", features=["vendored"]}
+openssl = {version= "0.10.75"} #, features=["vendored"]}
+
 ratatui = "0.28"
 crossterm = "0.28"
 fpicker = "0.1.4"
+winapi = "0.3.9"
+
+[target.'cfg(windows)'.dependencies]
+wmi = "0.17"
